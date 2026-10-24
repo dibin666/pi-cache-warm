@@ -1,0 +1,27 @@
+{
+  "name": "pi-cache-warm",
+  "version": "2.0.0",
+  "description": "Cache Warm Plus for pi: keep prompt caches warm past the built-in limits, with a bilingual TUI, SVG icons, warm history charts and a visual editor for pi's model cache settings.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "prompt-cache",
+    "cache-warming"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node test/run.mjs",
+    "readme": "node scripts/render-readme.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dibin666/pi-cache-warm.git"
+  },
+  "homepage": "https://github.com/dibin666/pi-cache-warm#readme"
+}
