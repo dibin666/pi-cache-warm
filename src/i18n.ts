@@ -18,6 +18,8 @@ const DICT = {
 	unsaved_save: { zh: "未保存 · Ctrl+S", en: "unsaved · Ctrl+S" },
 	n_saved: { zh: "已保存", en: "Saved" },
 	n_saved_reload: { zh: "已保存;pi 设置将在关闭面板后重新加载生效", en: "Saved; pi reloads its settings when the panel closes" },
+	n_saved_reload_manual: { zh: "已保存;运行 /reload 让 pi 设置生效", en: "Saved; run /reload to apply pi's settings" },
+	n_reload_manual: { zh: "缓存预热:pi 设置已写入,运行 /reload 生效", en: "Cache Warm: pi settings written; run /reload to apply" },
 	n_unsaved_close: { zh: "有未保存的修改:Ctrl+S 保存,再按 Esc 放弃并关闭", en: "Unsaved changes: Ctrl+S to save, Esc again to discard" },
 	n_unsaved_editor: { zh: "模型设置未保存:Ctrl+S 保存,再按 Esc 放弃", en: "Model settings unsaved: Ctrl+S to save, Esc again to discard" },
 

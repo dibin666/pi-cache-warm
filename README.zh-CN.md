@@ -27,3 +27,4 @@ pi install git:github.com/dibin666/pi-cache-warm
 ```
 
 `/cachewarm` 打开面板:`←→` 切换页 · `↑↓` 选择 · `Enter` 修改 · `Ctrl+S` 保存 · `Esc` 关闭。
+全屏模式(pi 默认)下也可以直接点击底栏的「缓存保温 · 下次 …」打开。

@@ -27,3 +27,4 @@ pi install git:github.com/dibin666/pi-cache-warm
 ```
 
 `/cachewarm` opens the panel: `←→` tabs · `↑↓` select · `Enter` change · `Ctrl+S` save · `Esc` close.
+In fullscreen mode (pi's default) you can also click the `cache warm · next …` status in the footer.

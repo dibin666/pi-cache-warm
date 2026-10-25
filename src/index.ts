@@ -9,17 +9,20 @@
  *   3. records every warm, cache rebuild and stop, and shows them as a chart and list,
  *   4. edits pi's own model cache metadata (models.json) and warming settings (settings.json).
  *
- * Open the panel with `/cachewarm`. Settings: ~/.pi/agent/cache-warm-plus.json
+ * Open the panel with `/cachewarm`, or by clicking the footer status in fullscreen mode. Settings: ~/.pi/agent/cache-warm-plus.json
  * History: ~/.pi/agent/cache-warm-plus.log.jsonl
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { LANG_CHOICES, type LangSetting, loadConfig, saveConfig } from "./config.ts";
 import { Engine } from "./engine.ts";
+import { clickable, hookFooterClick, unhookFooterClick } from "./footer-link.ts";
 import { t } from "./i18n.ts";
 import { Icons } from "./icons.ts";
 import { openPanel } from "./ui/panel.ts";
 
 const STATUS_KEY = "cache-warm-plus";
+/** Invisible widget: hands over pi's renderer so footer clicks can be routed to the panel. */
+const CLICK_WIDGET_KEY = "cache-warm-plus-click";
 
 export default function (pi: ExtensionAPI) {
 	const engine = new Engine(pi, loadConfig());
@@ -28,6 +31,38 @@ export default function (pi: ExtensionAPI) {
 
 	let uiCtx: ExtensionContext | undefined;
 	let lastFooter: string | undefined;
+	/** pi's renderer (a stable reference that follows fullscreen/regular switches). */
+	let tuiRef: any;
+	/** Whether the footer status is currently a clickable link. */
+	let linked = false;
+	let panelOpen = false;
+
+	const open = async (ctx: ExtensionContext, tab: number) => {
+		if (panelOpen) return;
+		panelOpen = true;
+		try {
+			await openPanel(ctx, pi, engine, icons, tab);
+		} finally {
+			panelOpen = false;
+		}
+	};
+	const onFooterClick = () => {
+		const ctx = uiCtx;
+		if (!ctx?.hasUI || ctx.mode !== "tui") return;
+		void open(ctx, 0).catch(() => {
+			/* UI gone */
+		});
+	};
+	/** (Re)attach the click route; re-render the status when fullscreen mode was toggled. */
+	const syncClick = () => {
+		const now = !!tuiRef && hookFooterClick(tuiRef, onFooterClick);
+		if (now !== linked) {
+			linked = now;
+			lastFooter = undefined;
+			setTimeout(updateFooter, 0);
+		}
+	};
+
 	const updateFooter = () => {
 		const ctx = uiCtx;
 		if (!ctx?.hasUI) return;
@@ -42,6 +77,7 @@ export default function (pi: ExtensionAPI) {
 			} else if (st.state === "busy") text = t(lang, "footer_busy");
 			else if (st.state === "stopped") text = t(lang, "footer_stopped");
 		}
+		if (text && linked) text = clickable(text);
 		if (text === lastFooter) return;
 		lastFooter = text;
 		try {
@@ -56,10 +92,31 @@ export default function (pi: ExtensionAPI) {
 		uiCtx = ctx;
 		lastFooter = undefined;
 		engine.setConfig(loadConfig()); // pick up edits made outside the TUI
+		if (ctx.mode === "tui") {
+			try {
+				ctx.ui.setWidget(CLICK_WIDGET_KEY, (tui) => {
+					tuiRef = tui;
+					syncClick();
+					// Renders nothing; checking on every frame follows renderer switches.
+					return {
+						render: () => {
+							syncClick();
+							return [];
+						},
+						invalidate: () => {},
+					};
+				});
+			} catch {
+				/* no widget support: the status stays plain text */
+			}
+		}
 		updateFooter();
 	});
 	pi.on("session_shutdown", () => {
 		uiCtx = undefined;
+		if (tuiRef) unhookFooterClick(tuiRef);
+		tuiRef = undefined;
+		linked = false;
 	});
 
 	pi.registerCommand("cachewarm", {
@@ -100,7 +157,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (ctx.mode !== "tui") return notify(t(lang, "n_need_tui"), "warning");
 			const tab = cmd === "history" ? 1 : cmd === "models" ? 2 : 0;
-			await openPanel(ctx, pi, engine, icons, tab);
+			await open(ctx, tab);
 		},
 	});
 }

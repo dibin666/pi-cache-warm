@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { cycle, LANG_CHOICES, saveConfig, type Config } from "../config.ts";
 import type { Engine } from "../engine.ts";
@@ -32,15 +32,22 @@ function bodyRows(): number {
 	return Math.max(14, Math.min(26, termRows() - 10));
 }
 
-export async function openPanel(ctx: ExtensionCommandContext, pi: ExtensionAPI, engine: Engine, icons: Icons, tab = 0): Promise<void> {
+/** Command contexts can reload pi; the footer click only has a plain event context. */
+const canReload = (ctx: ExtensionContext): ctx is ExtensionCommandContext =>
+	typeof (ctx as Partial<ExtensionCommandContext>).reload === "function" &&
+	typeof (ctx as Partial<ExtensionCommandContext>).waitForIdle === "function";
+
+export async function openPanel(ctx: ExtensionContext, pi: ExtensionAPI, engine: Engine, icons: Icons, tab = 0): Promise<void> {
+	const autoReload = canReload(ctx);
 	const reload = await ctx.ui.custom<boolean>(
-		(tui, theme, _kb, done) => new Panel(tui, theme, ctx, pi, engine, icons, tab, done),
+		(tui, theme, _kb, done) => new Panel(tui, theme, ctx, pi, engine, icons, tab, done, autoReload),
 		{ overlay: true, overlayOptions: () => ({ anchor: "center", width: panelWidth(), maxHeight: termRows() - 1 }) },
 	);
-	if (reload) {
+	if (!reload) return;
+	if (autoReload) {
 		await ctx.waitForIdle();
 		await ctx.reload();
-	}
+	} else ctx.ui.notify(t(engine.lang, "n_reload_manual"), "warning");
 }
 
 interface Hit {
@@ -70,12 +77,13 @@ export class Panel {
 	constructor(
 		private tui: any,
 		private theme: any,
-		ctx: ExtensionCommandContext,
+		ctx: ExtensionContext,
 		piApi: ExtensionAPI,
 		private engine: Engine,
 		private icons: Icons,
 		tab: number,
 		private done: (reload: boolean) => void,
+		private autoReload = true,
 	) {
 		this.tab = tab;
 		this.draft = clone(engine.cfg);
@@ -167,7 +175,7 @@ export class Panel {
 				this.piSaved = { ...this.pi };
 				this.needsReload = true;
 			}
-			this.shared.notify(tr(this.needsReload ? "n_saved_reload" : "n_saved"), true);
+			this.shared.notify(tr(this.needsReload ? (this.autoReload ? "n_saved_reload" : "n_saved_reload_manual") : "n_saved"), true);
 		} catch (err) {
 			this.shared.notify(tr("n_save_failed", { err: err instanceof Error ? err.message : String(err) }), false);
 		}

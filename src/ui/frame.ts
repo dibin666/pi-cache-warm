@@ -1,5 +1,5 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Config } from "../config.ts";
 import type { Engine } from "../engine.ts";
 import type { Key } from "../i18n.ts";
@@ -13,7 +13,7 @@ export interface Shared {
 	theme: Theme;
 	engine: Engine;
 	icons: Icons;
-	ctx: ExtensionCommandContext;
+	ctx: ExtensionContext;
 	pi: ExtensionAPI;
 	tr(key: Key, vars?: Record<string, string | number>): string;
 	icon(name: IconName, token: string, slot: string, cols?: number, token2?: string): string;

@@ -347,5 +347,73 @@ console.log(`tui: ${cases.length} renders checked`);
 	console.log(`ask: checked (${gptKey})`);
 	ctx.model = opus;
 }
+// ── footer status click (fullscreen) ──
+{
+	const fl = await jiti.import(join(src, "footer-link.ts"));
+	const { createInteractiveTuiReference } = await jiti.import(join(nm, "@earendil-works/pi-coding-agent/dist/modes/interactive/tui-renderer.js"));
+	const noop = () => {};
+	const makeTerm = () => {
+		const t = { columns: 80, rows: 10, kittyProtocolActive: false, drainInput: async () => {} };
+		for (const m of ["stop", "write", "moveBy", "hideCursor", "showCursor", "clearLine", "clearFromCursor", "clearScreen", "setTitle", "setProgress", "setProgramStatus"]) t[m] = noop;
+		t.start = (onInput) => (t.input = onInput);
+		return t;
+	};
+	const term = makeTerm();
+	const opened = [];
+	const alt = new tui.TuiAltScreen(term, false, undefined, { openUrl: (u) => opened.push(u) });
+	const ref = createInteractiveTuiReference(() => alt);
+	if (fl.canClick(createInteractiveTuiReference(() => new tui.TuiMainScreen(makeTerm(), false)))) fail("footer: regular mode must not be clickable");
+
+	// Load the extension against the real fullscreen renderer.
+	const ext = (await jiti.import(join(src, "index.ts"))).default;
+	const h = {};
+	const fpi = { on: (e, f) => (h[e] ??= []).push(f), registerCommand: noop, setModel: async () => true, events: { on: noop, emit: noop } };
+	ext(fpi);
+	let status;
+	let customs = 0;
+	const fctx = {
+		...ctx,
+		ui: {
+			notify: noop,
+			setStatus: (_k, v) => (status = v),
+			setWidget: (_k, factory) => alt.addChild(factory(ref, theme)),
+			custom: () => {
+				customs++;
+				return new Promise(noop);
+			},
+		},
+	};
+	const fire = async (e, ev) => {
+		for (const f of h[e] ?? []) await f(ev, fctx);
+	};
+	await fire("session_start", {});
+	await fire("before_provider_request", { payload: { model: "x", max_tokens: 1000, messages: [] } });
+	await fire("after_provider_response", { status: 200 });
+	await new Promise((r) => setTimeout(r, 10));
+	if (!status?.includes(fl.FOOTER_URL)) fail(`footer: status is not a link: ${JSON.stringify(status)}`);
+	alt.addChild({ render: (w) => [tui.truncateToWidth(`« ${status ?? ""}`, w)], invalidate: noop });
+	alt.start();
+	alt.requestRender(true);
+	await new Promise((r) => setTimeout(r, 30));
+	const y = alt.getScreenLines().findIndex((l) => l.includes(fl.FOOTER_URL));
+	const press = async (x, row) => {
+		term.input(`\x1b[<0;${x + 1};${row + 1}M`);
+		term.input(`\x1b[<0;${x + 1};${row + 1}m`);
+		await new Promise((r) => setTimeout(r, 600)); // past the double-click window
+	};
+	if (y < 0) fail("footer: link not on screen");
+	else {
+		await press(0, y); // the « before the status
+		if (customs !== 0) fail("footer: click outside the status opened the panel");
+		await press(4, y);
+		if (customs !== 1) fail(`footer: click opened ${customs} panel(s)`);
+		await press(4, y);
+		if (customs !== 1) fail("footer: second click while open must not stack panels");
+		if (opened.length) fail(`footer: pi's URL opener got ${opened}`);
+	}
+	alt.stop();
+	console.log("footer: click checked");
+}
+
 console.log(failures ? `${failures} failure(s)` : "all checks passed");
 process.exit(failures ? 1 : 0);
