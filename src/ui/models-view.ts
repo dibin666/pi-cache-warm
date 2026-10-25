@@ -142,7 +142,7 @@ export class ModelsView implements View {
 			const provider = e.key.slice(0, slash);
 			const id = e.key.slice(slash + 1);
 			const r = new Row();
-			r.add(icon(on ? "boxOn" : "box", on ? "success" : "muted", `m:box:${i - this.top}:${on}`, 2, "text"), () => {
+			r.add(icon(on ? "boxOn" : "box", on ? "success" : "muted", `m:box:${i - this.top}:${on}`), () => {
 				this.sel = i;
 				this.toggle(e);
 			});

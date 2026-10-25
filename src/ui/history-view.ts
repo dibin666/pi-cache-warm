@@ -216,7 +216,7 @@ export class HistoryView implements View {
 		nav.add("  ");
 		nav.add(`${th.fg("accent", `${tr("d_older")} `)}${icon("chevRight", "accent", "hd:next", 1)}`, () => idx < this.list.length - 1 && (this.sel = this.detail = idx + 1));
 		nav.add("   ");
-		nav.add(`${icon("cross", "muted", "hd:close")}${th.fg("muted", tr("d_back"))}`, () => (this.detail = undefined));
+		nav.add(`${icon("cross", "muted", "hd:close", 2)}${th.fg("muted", tr("d_back"))}`, () => (this.detail = undefined));
 		head.to(W - nav.width);
 		const base = head.width;
 		head.add(nav.text);

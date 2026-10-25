@@ -61,6 +61,11 @@ export function padLeft(s: string, w: number): string {
 	return " ".repeat(Math.max(0, w - visibleWidth(c))) + c;
 }
 
+/** On/off switch shown as plain text: bold green when on, dim when off. */
+export function switchText(th: Theme, tr: Shared["tr"], on: boolean): string {
+	return on ? th.bold(th.fg("success", tr("on"))) : th.fg("dim", tr("off"));
+}
+
 /** One content row built from segments; segments with an action become click targets. */
 export class Row {
 	text = "";

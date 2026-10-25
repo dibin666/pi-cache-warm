@@ -15,7 +15,7 @@ Keeps [pi](https://pi.dev)'s prompt cache warm beyond its built-in limits, with 
 - **Ask-aware** – keeps warming while an rpiv `ask_user_question` dialog waits for you; tagged `ask` in history.
 - **History** – every warm, rebuild and stop with its cost, as a chart and a list; click a record for details.
 - **Model settings** – edit pi's `promptCache` and prices in `models.json`; per-model Claude subscription switch (cache reads not billed).
-- **TUI** – English / 中文, SVG icons, mouse and keyboard.
+- **TUI** – English / 中文, plain-text Unicode icons that work in any terminal, mouse and keyboard.
 
 <img src="docs/history.en.svg" alt="History" width="100%">
 <img src="docs/models.en.svg" alt="Model settings" width="100%">

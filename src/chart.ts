@@ -1,7 +1,7 @@
 /**
  * Character-drawn graphics: the stacked history bar chart and the cache-life bar.
  * They are text on purpose so they show in every terminal (including multiplexers that do not
- * forward Kitty graphics); icons stay SVG.
+ * forward Kitty graphics), like the icons.
  */
 import type { Bucket } from "./history.ts";
 

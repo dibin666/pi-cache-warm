@@ -7,7 +7,7 @@ import type { IconName } from "../icons.ts";
 import { CACHE_WARMING_MODES } from "../pi-config.ts";
 import { readLog } from "../history.ts";
 import { kindIcon, kindLabel } from "./history-view.ts";
-import { fmtClock, fmtDur, fmtMoney, fmtTok, fmtTtl, type Frame, pad, padLeft, Row, type Shared, shortModel, type View } from "./frame.ts";
+import { fmtClock, fmtDur, fmtMoney, fmtTok, fmtTtl, type Frame, pad, padLeft, Row, type Shared, shortModel, type View, switchText } from "./frame.ts";
 
 interface Setting {
 	id: string;
@@ -149,7 +149,7 @@ export class OverviewView implements View {
 		r1.add(th.bold(ctx.model ? shortModel(modelKey(ctx.model)) : tr("none")));
 		if (st.ttlMs) r1.add("  ").add(icon("database", "muted", "ov:ttl")).add(th.fg("muted", ` ${fmtTtl(st.ttlMs / 1000)}`));
 		if (st.subscription) r1.add("  ").add(icon("crown", "warning", "ov:sub")).add(th.fg("warning", ` ${tr("sub_badge")}`));
-		const sw = `${icon(tracked ? "toggleOn" : "toggleOff", tracked ? "success" : "dim", `ov:track:${tracked}`, 3, "text")} ${th.fg(tracked ? "success" : "dim", tr("keep_warm"))}`;
+		const sw = `${th.fg(tracked ? "success" : "dim", `${tr("keep_warm")} `)}${switchText(th, tr, tracked)}`;
 		r1.right(sw, W, () => this.toggleTracked());
 		f.push(r1);
 
@@ -211,7 +211,7 @@ export class OverviewView implements View {
 			const v = x.value();
 			if (x.kind === "toggle") {
 				const on = v === true;
-				r.add(`${icon(on ? "toggleOn" : "toggleOff", on ? "success" : "dim", `set:${x.id}:tg:${on}`, 3, "text")} ${th.fg(on ? "success" : "dim", on ? tr("on") : tr("off"))}`);
+				r.add(switchText(th, tr, on));
 			} else if (x.kind === "cycle") {
 				r.add(icon("chevLeft", "accent", `set:${x.id}:l`, 1), activate(-1));
 				r.add(th.fg("accent", ` ${v} `));

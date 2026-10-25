@@ -7,7 +7,7 @@ import { costOf, isClaude, missPremium, modelKey, priceOf } from "../engine.ts";
 import type { Key } from "../i18n.ts";
 import type { IconName } from "../icons.ts";
 import { describeSource, effectiveFields, locateModel, type ModelFields, saveModelFields } from "../pi-config.ts";
-import { fmtMoney, fmtTok, fmtTtl, type Frame, Row, type Shared, type View } from "./frame.ts";
+import { fmtMoney, fmtTok, fmtTtl, type Frame, Row, type Shared, type View, switchText } from "./frame.ts";
 
 type FieldId = "short" | "long" | "cacheRead" | "cacheWrite" | "input" | "sub" | "warm";
 
@@ -209,7 +209,7 @@ export class EditorView implements View {
 
 		// Title with save / cancel buttons.
 		const head = new Row().add(icon("pen", "accent", "e:title")).add(" ").add(th.bold(th.fg("accent", m.id))).add(th.fg("dim", `  ${m.provider}`));
-		if (this.dirty()) head.add("  ").add(icon("dot", "warning", "e:dirty")).add(th.fg("warning", tr("e_dirty")));
+		if (this.dirty()) head.add("  ").add(icon("dot", "warning", "e:dirty", 2)).add(th.fg("warning", tr("e_dirty")));
 		const buttons = new Row();
 		buttons.add(`${icon("save", "success", "e:save")}${th.bg("selectedBg", th.bold(th.fg("success", ` ${tr("btn_save")} `)))}`, () => void this.s.save());
 		buttons.add("  ");
@@ -232,7 +232,7 @@ export class EditorView implements View {
 			};
 			if (fd.kind === "toggle") {
 				const on = fd.id === "sub" ? this.sub : this.warm;
-				r.add(`${icon(on ? "toggleOn" : "toggleOff", on ? "success" : "dim", `e:${fd.id}:tg:${on}`, 3, "text")} ${th.fg(on ? "success" : "dim", on ? tr("on") : tr("off"))}`);
+				r.add(switchText(th, tr, on));
 				if (fd.id === "sub") r.add(th.fg("dim", `   ${tr("f_sub_note")}`));
 				f.push(r, { selected, onRow: () => (select(), this.change(fd, 1)) });
 				return;

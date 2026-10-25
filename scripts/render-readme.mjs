@@ -1,5 +1,5 @@
 // Render the real panel offline (demo data, no network) and convert its terminal output into
-// SVG images for the README: truecolor text, CJK widths, Kitty-embedded SVG icons.
+// SVG images for the README: truecolor text, CJK widths, character icons.
 //   node scripts/render-readme.mjs   → docs/*.svg
 import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

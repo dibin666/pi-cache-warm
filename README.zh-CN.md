@@ -15,7 +15,7 @@
 - **ask 联动**:rpiv `ask_user_question` 问答窗口等待回复时持续保温,记录中标记 `ask`。
 - **预热记录**:每次预热、重建、停止及其费用,图表加列表,点击记录查看详情。
 - **模型设置**:编辑 `models.json` 中的 `promptCache` 与价格;按模型开启 Claude 官方订阅(不计缓存读取费)。
-- **TUI**:中文 / English,SVG 图标,支持鼠标与键盘。
+- **TUI**:中文 / English,Unicode 字符图标(任何终端都能显示),支持鼠标与键盘。
 
 <img src="docs/history.zh.svg" alt="记录" width="100%">
 <img src="docs/models.zh.svg" alt="模型设置" width="100%">

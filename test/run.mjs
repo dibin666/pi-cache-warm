@@ -1,6 +1,6 @@
-// Offline checks: i18n coverage, SVG icon sheet, and TUI rendering of every view in both
-// languages, in text and Kitty-graphics modes. Uses the jiti bundled with pi.
-//   node test/run.mjs [--sheet /tmp/icons.png] [--print]
+// Offline checks: i18n coverage, character icons, and TUI rendering of every view in both
+// languages. Uses the jiti bundled with pi.
+//   node test/run.mjs [--print]
 import { execSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -77,28 +77,20 @@ for (const k of used) {
 }
 console.log(`i18n: ${used.size} keys checked`);
 
-// ── icon sheet ──
+// ── icons ──
 const iconsMod = await jiti.import(join(src, "icons.ts"));
-const svgMod = await jiti.import(join(src, "svg.ts"));
-const iconsSrc = readFileSync(join(src, "icons.ts"), "utf8");
-const names = [...iconsSrc.matchAll(/^\t([a-zA-Z0-9]+): `/gm)].map((m) => m[1]);
-const sheetArg = args.indexOf("--sheet");
 {
-	const size = 64;
-	const per = 8;
-	const rows = Math.ceil(names.length / per);
-	let body = "";
-	names.forEach((n, i) => {
-		const x = (i % per) * 32;
-		const y = Math.floor(i / per) * 32;
-		const m = iconsSrc.match(new RegExp(`^\\t${n}: \`(.*)\`,$`, "m"));
-		body += `<g transform="translate(${x + 4} ${y + 4})">${m[1].replaceAll("{c2}", "#1e1e2e")}</g>`;
-	});
-	const svg = `<svg viewBox="0 0 ${per * 32} ${rows * 32}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="0" y="0" width="${per * 32}" height="${rows * 32}" fill="#1e1e2e" stroke="none"/>${body}</svg>`;
-	const png = svgMod.renderSvg(svg, (per * size) / 1, (rows * size) / 1, { color: "#89b4fa" });
-	const out = sheetArg >= 0 ? args[sheetArg + 1] : join(tmpdir(), "cwp-icons.png");
-	writeFileSync(out, png);
-	console.log(`icons: ${names.length} drawn → ${out}`);
+	const tuiMod = await jiti.import(join(nm, "@earendil-works/pi-tui/dist/index.js"));
+	const iconsSrc = readFileSync(join(src, "icons.ts"), "utf8");
+	const glyphs = [...iconsSrc.matchAll(/^\t([a-zA-Z0-9]+): "(.*)",$/gm)];
+	const plain = { fg: (_t, s) => s };
+	const icons = new iconsMod.Icons();
+	for (const [, n, g] of glyphs) {
+		if ([...g].length !== 1 || tuiMod.visibleWidth(g) !== 1) fail(`icon ${n}: "${g}" is not one single-width glyph`);
+		if (/\p{Extended_Pictographic}/u.test(g) && !"©®".includes(g)) fail(`icon ${n}: "${g}" may render as emoji`);
+		if (tuiMod.visibleWidth(icons.icon(plain, n, "text", "", 2)) !== 2) fail(`icon ${n}: wrong padded width`);
+	}
+	console.log(`icons: ${glyphs.length} glyphs checked`);
 }
 
 // ── TUI rendering ──
@@ -169,7 +161,7 @@ const draw = (opts) => {
 		if (w !== width) fail(`${opts.name}: line ${i} width ${w} != ${width}: ${JSON.stringify(strip(l)).slice(0, 90)}`);
 	}
 	if (lines.length > opts.rows - 1) fail(`${opts.name}: ${lines.length} lines > ${opts.rows - 1}`);
-	if (!lines.some((l) => l.includes("\x1b_G"))) fail(`${opts.name}: no SVG icons`);
+	if (lines.some((l) => l.includes("\x1b_G"))) fail(`${opts.name}: unexpected graphics escape`);
 	return lines;
 };
 /** Click the first occurrence of `text` on screen. */

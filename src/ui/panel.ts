@@ -89,7 +89,7 @@ export class Panel {
 			ctx,
 			pi: piApi,
 			tr: (key, vars) => t(self.engine.lang, key, vars),
-			icon: (name, token, slot, cols = 2, token2 = "warning") => self.icons.icon(self.theme, name, token, slot, cols, 1, token2),
+			icon: (name, token, slot, cols = 1, token2 = "warning") => self.icons.icon(self.theme, name, token, slot, cols, 1, token2),
 			notify: (text, ok = true) => {
 				self.notice = { text, ok, at: Date.now() };
 				self.tui.requestRender();
@@ -267,7 +267,7 @@ export class Panel {
 		let right: string;
 		let rightAction: Action | undefined;
 		if (this.dirty()) {
-			right = `${icon("dot", "warning", "hdr:dirty")}${th.fg("warning", tr("unsaved_save"))}`;
+			right = `${icon("dot", "warning", "hdr:dirty", 2)}${th.fg("warning", tr("unsaved_save"))}`;
 			rightAction = () => void this.save();
 		} else {
 			const st = this.engine.status(this.shared.ctx.model);
@@ -278,7 +278,7 @@ export class Panel {
 				: st.state === "scheduled" && st.nextAt
 					? `${tr("state_scheduled")} ${fmtDur(st.nextAt - Date.now())}`
 					: tr((st.state === "stopped" ? "state_stopped_short" : `state_${st.state}_short`) as Key) || tr(`state_${st.state}` as Key);
-			right = `${icon(live ? "dot" : "ring", tone, "hdr:pill")}${th.fg(tone, text)}`;
+			right = `${icon(live ? "dot" : "ring", tone, "hdr:pill", 2)}${th.fg(tone, text)}`;
 			rightAction = () => (this.tab = 0);
 		}
 		if (head.width + visibleWidth(right) + 2 <= W) head.right(right, W, rightAction);
@@ -299,7 +299,7 @@ export class Panel {
 		out.push(b(`├${"─".repeat(width - 2)}┤`));
 		if (this.notice && Date.now() - this.notice.at > 6000) this.notice = undefined;
 		const lang = this.engine.lang === "zh" ? "中文" : "EN";
-		const langChip = `${icon("globe", "muted", "ft:lang")}${th.fg("muted", lang)}`;
+		const langChip = `${icon("globe", "muted", "ft:lang", 2)}${th.fg("muted", lang)}`;
 		const foot = new Row();
 		const room = W - visibleWidth(langChip) - 2;
 		if (this.notice) {
