@@ -15,7 +15,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { LANG_CHOICES, type LangSetting, loadConfig, saveConfig } from "./config.ts";
 import { Engine } from "./engine.ts";
-import { clickable, hookFooterClick, unhookFooterClick } from "./footer-link.ts";
+import { type ClickTarget, hookFooterClick, unhookFooterClick } from "./footer-link.ts";
 import { t } from "./i18n.ts";
 import { Icons } from "./icons.ts";
 import { openPanel } from "./ui/panel.ts";
@@ -33,8 +33,6 @@ export default function (pi: ExtensionAPI) {
 	let lastFooter: string | undefined;
 	/** pi's renderer (a stable reference that follows fullscreen/regular switches). */
 	let tuiRef: any;
-	/** Whether the footer status is currently a clickable link. */
-	let linked = false;
 	let panelOpen = false;
 
 	const open = async (ctx: ExtensionContext, tab: number) => {
@@ -53,14 +51,14 @@ export default function (pi: ExtensionAPI) {
 			/* UI gone */
 		});
 	};
-	/** (Re)attach the click route; re-render the status when fullscreen mode was toggled. */
+	/** What a click must land on: the whole status, or its label when the footer wraps or cuts it. */
+	const clickTarget: ClickTarget = {
+		texts: () => (lastFooter ? [lastFooter, lastFooter.split(" · ")[0]!] : []),
+		onClick: onFooterClick,
+	};
+	/** (Re)attach the click route; cheap, and follows fullscreen/regular renderer switches. */
 	const syncClick = () => {
-		const now = !!tuiRef && hookFooterClick(tuiRef, onFooterClick);
-		if (now !== linked) {
-			linked = now;
-			lastFooter = undefined;
-			setTimeout(updateFooter, 0);
-		}
+		if (tuiRef) hookFooterClick(tuiRef, clickTarget);
 	};
 
 	const updateFooter = () => {
@@ -77,7 +75,6 @@ export default function (pi: ExtensionAPI) {
 			} else if (st.state === "busy") text = t(lang, "footer_busy");
 			else if (st.state === "stopped") text = t(lang, "footer_stopped");
 		}
-		if (text && linked) text = clickable(text);
 		if (text === lastFooter) return;
 		lastFooter = text;
 		try {
@@ -116,7 +113,6 @@ export default function (pi: ExtensionAPI) {
 		uiCtx = undefined;
 		if (tuiRef) unhookFooterClick(tuiRef);
 		tuiRef = undefined;
-		linked = false;
 	});
 
 	pi.registerCommand("cachewarm", {

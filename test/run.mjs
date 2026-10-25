@@ -351,32 +351,44 @@ console.log(`tui: ${cases.length} renders checked`);
 {
 	const fl = await jiti.import(join(src, "footer-link.ts"));
 	const { createInteractiveTuiReference } = await jiti.import(join(nm, "@earendil-works/pi-coding-agent/dist/modes/interactive/tui-renderer.js"));
+	const { createChatViewport } = await jiti.import(join(nm, "@earendil-works/pi-coding-agent/dist/modes/interactive/chat-viewport.js"));
 	const noop = () => {};
 	const makeTerm = () => {
-		const t = { columns: 80, rows: 10, kittyProtocolActive: false, drainInput: async () => {} };
+		const t = { columns: 80, rows: 14, kittyProtocolActive: false, drainInput: async () => {} };
 		for (const m of ["stop", "write", "moveBy", "hideCursor", "showCursor", "clearLine", "clearFromCursor", "clearScreen", "setTitle", "setProgress", "setProgramStatus"]) t[m] = noop;
 		t.start = (onInput) => (t.input = onInput);
 		return t;
 	};
 	const term = makeTerm();
-	const opened = [];
-	const alt = new tui.TuiAltScreen(term, false, undefined, { openUrl: (u) => opened.push(u) });
+	const alt = new tui.TuiAltScreen(term, false, undefined, { openUrl: noop });
 	const ref = createInteractiveTuiReference(() => alt);
-	if (fl.canClick(createInteractiveTuiReference(() => new tui.TuiMainScreen(makeTerm(), false)))) fail("footer: regular mode must not be clickable");
+	if (fl.canClick(createInteractiveTuiReference(() => new tui.TuiMainScreen(makeTerm(), false)))) fail("footer: regular mode must not be hooked");
 
-	// Load the extension against the real fullscreen renderer.
+	// pi's fullscreen layout: scrolling transcript above a fixed dock with widgets and footer.
+	const lineOf = (f) => ({ render: (w) => [tui.truncateToWidth(f(), w)], invalidate: noop });
+	let status;
+	const transcript = new tui.Container();
+	transcript.addChild(lineOf(() => `chat mentions ${status ?? ""}`));
+	const widgets = new tui.Container();
+	const footer = new tui.Container();
+	footer.addChild(lineOf(() => "~/project (main)"));
+	// Like pi-open-tui: keep colours, drop every other escape sequence.
+	footer.addChild(lineOf(() => `\x1b[36m»\x1b[39m \x1b[90m${tui.stripTerminalSequences(status ?? "")}\x1b[39m | other`));
+	const vp = createChatViewport({ document: transcript, pendingMessages: new tui.Container(), status: new tui.Container(), widgetsAbove: widgets, editor: lineOf(() => "> "), widgetsBelow: new tui.Container(), footer });
+	for (const c of [transcript, widgets, footer]) alt.addChild(c);
+	alt.setLayoutRoot(vp.root);
+
 	const ext = (await jiti.import(join(src, "index.ts"))).default;
 	const h = {};
 	const fpi = { on: (e, f) => (h[e] ??= []).push(f), registerCommand: noop, setModel: async () => true, events: { on: noop, emit: noop } };
 	ext(fpi);
-	let status;
 	let customs = 0;
 	const fctx = {
 		...ctx,
 		ui: {
 			notify: noop,
 			setStatus: (_k, v) => (status = v),
-			setWidget: (_k, factory) => alt.addChild(factory(ref, theme)),
+			setWidget: (_k, factory) => widgets.addChild(factory(ref, theme)),
 			custom: () => {
 				customs++;
 				return new Promise(noop);
@@ -389,27 +401,34 @@ console.log(`tui: ${cases.length} renders checked`);
 	await fire("session_start", {});
 	await fire("before_provider_request", { payload: { model: "x", max_tokens: 1000, messages: [] } });
 	await fire("after_provider_response", { status: 200 });
-	await new Promise((r) => setTimeout(r, 10));
-	if (!status?.includes(fl.FOOTER_URL)) fail(`footer: status is not a link: ${JSON.stringify(status)}`);
-	alt.addChild({ render: (w) => [tui.truncateToWidth(`« ${status ?? ""}`, w)], invalidate: noop });
+	if (!status) fail("footer: no status");
 	alt.start();
 	alt.requestRender(true);
 	await new Promise((r) => setTimeout(r, 30));
-	const y = alt.getScreenLines().findIndex((l) => l.includes(fl.FOOTER_URL));
-	const press = async (x, row) => {
-		term.input(`\x1b[<0;${x + 1};${row + 1}M`);
-		term.input(`\x1b[<0;${x + 1};${row + 1}m`);
-		await new Promise((r) => setTimeout(r, 600)); // past the double-click window
+	const screen = alt.getScreenLines().map((l) => tui.stripTerminalSequences(l));
+	const find = (needle, from = 0) => {
+		const y = screen.findIndex((l, i) => i >= from && l.includes(needle));
+		return y < 0 ? undefined : { y, x: tui.visibleWidth(screen[y].slice(0, screen[y].indexOf(needle))) };
 	};
-	if (y < 0) fail("footer: link not on screen");
+	const click = async (x, y) => {
+		term.input(`\x1b[<0;${x + 1};${y + 1}M`);
+		term.input(`\x1b[<0;${x + 1};${y + 1}m`);
+		await new Promise((r) => setTimeout(r, 20));
+	};
+	const inChat = find(status ?? "?");
+	const inFooter = find(status ?? "?", (inChat?.y ?? 0) + 1);
+	if (!inChat || !inFooter || inFooter.y <= inChat.y) fail(`footer: layout not as expected\n${screen.join("\n")}`);
 	else {
-		await press(0, y); // the « before the status
-		if (customs !== 0) fail("footer: click outside the status opened the panel");
-		await press(4, y);
+		await click(inChat.x + 2, inChat.y);
+		if (customs !== 0) fail("footer: status text inside the transcript opened the panel");
+		await click(0, inFooter.y);
+		if (customs !== 0) fail("footer: click beside the status opened the panel");
+		await click(find("other").x, inFooter.y);
+		if (customs !== 0) fail("footer: click on another status opened the panel");
+		await click(inFooter.x + 3, inFooter.y);
 		if (customs !== 1) fail(`footer: click opened ${customs} panel(s)`);
-		await press(4, y);
+		await click(inFooter.x + 3, inFooter.y);
 		if (customs !== 1) fail("footer: second click while open must not stack panels");
-		if (opened.length) fail(`footer: pi's URL opener got ${opened}`);
 	}
 	alt.stop();
 	console.log("footer: click checked");
