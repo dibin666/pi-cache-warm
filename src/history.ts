@@ -128,9 +128,24 @@ export function filterEntries(entries: LogEntry[], range: HistoryRange, filter: 
 	const since = now - RANGE_MS[range];
 	return entries.filter((e) => {
 		if (e.at < since || e.at > now + 60_000) return false;
-		if (filter === "model" && fc.model && e.model !== fc.model) return false;
-		if (filter === "session" && fc.session && e.session !== fc.session) return false;
+		if (filter === "model" && (!fc.model || e.model !== fc.model)) return false;
+		if (filter === "session" && (!fc.session || e.session !== fc.session)) return false;
 		return true;
+	});
+}
+
+/**
+ * The first recorded event in a conversation is the bootstrap entry, not a useful warm record.
+ * Keep it in the log so it can still be audited, but leave it out of the views that display warm
+ * history. Entries are sorted by time by readLog().
+ */
+export function withoutConversationFirst(entries: LogEntry[]): LogEntry[] {
+	const seen = new Set<string>();
+	return entries.filter((e) => {
+		if (!e.session) return true;
+		if (seen.has(e.session)) return true;
+		seen.add(e.session);
+		return false;
 	});
 }
 

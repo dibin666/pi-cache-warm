@@ -5,7 +5,7 @@ import { modelKey } from "../engine.ts";
 import type { Key } from "../i18n.ts";
 import type { IconName } from "../icons.ts";
 import { CACHE_WARMING_MODES } from "../pi-config.ts";
-import { readLog } from "../history.ts";
+import { filterEntries, readLog, withoutConversationFirst } from "../history.ts";
 import { kindIcon, kindLabel } from "./history-view.ts";
 import { fmtClock, fmtDur, fmtMoney, fmtTok, fmtTtl, type Frame, pad, padLeft, Row, type Shared, shortModel, type View, switchText } from "./frame.ts";
 
@@ -225,7 +225,20 @@ export class OverviewView implements View {
 		const room = rows - f.lines.length - 1;
 		if (room < 2) return;
 		f.rule(th.fg("muted", tr("recent")));
-		const recent = readLog().slice(-room).reverse();
+		let session: string | undefined;
+		try {
+			session = ctx.sessionManager.getSessionId();
+		} catch {
+			session = undefined;
+		}
+		const recentLog = filterEntries(
+			withoutConversationFirst(readLog()),
+			draft.historyRange,
+			draft.historyFilter,
+			{ session, model: ctx.model ? modelKey(ctx.model) : undefined },
+			now,
+		);
+		const recent = recentLog.slice(-room).reverse();
 		if (!recent.length) f.push(th.fg("dim", tr("hist_empty")));
 		const modelW = Math.max(10, W - 3 - 10 - 10 - 9 - 11 - 6);
 		recent.forEach((e, i) => {

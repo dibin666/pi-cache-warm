@@ -44,7 +44,8 @@ export const DEFAULTS: Config = {
 	footer: true,
 	historyRange: "24h",
 	historyMetric: "count",
-	historyFilter: "all",
+	// Keep each pi conversation's records scoped to the current conversation by default.
+	historyFilter: "session",
 };
 
 export const HOURS_CHOICES = [0, 1, 2, 4, 8, 12, 24, 48];
@@ -73,7 +74,7 @@ export function loadConfig(): Config {
 			cfg.lang = pick(LANG_CHOICES, cfg.lang, "auto");
 			cfg.historyRange = pick(RANGE_CHOICES, cfg.historyRange, "24h");
 			cfg.historyMetric = pick(METRIC_CHOICES, cfg.historyMetric, "count");
-			cfg.historyFilter = pick(FILTER_CHOICES, cfg.historyFilter, "all");
+			cfg.historyFilter = pick(FILTER_CHOICES, cfg.historyFilter, "session");
 			if (!(cfg.maxKeepWarmHours >= 0)) cfg.maxKeepWarmHours = 0;
 			cfg.takeoverPct = Math.min(97, Math.max(80, Number(cfg.takeoverPct) || DEFAULTS.takeoverPct));
 			cfg.footer = cfg.footer !== false;

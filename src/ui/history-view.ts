@@ -1,8 +1,8 @@
 import { matchesKey } from "@earendil-works/pi-tui";
 import { chartBuckets, SERIES, SERIES_TOKEN, textChart } from "../chart.ts";
-import { RANGE_CHOICES, type HistoryRange } from "../config.ts";
-import { costOf, priceOf } from "../engine.ts";
-import { bucketize, clearLog, filterEntries, type LogEntry, RANGE_MS, readLog, summarize } from "../history.ts";
+import { RANGE_CHOICES, type HistoryFilter, type HistoryRange } from "../config.ts";
+import { costOf, modelKey, priceOf } from "../engine.ts";
+import { bucketize, clearLog, filterEntries, type LogEntry, RANGE_MS, readLog, summarize, withoutConversationFirst } from "../history.ts";
 import type { Key } from "../i18n.ts";
 import type { IconName } from "../icons.ts";
 import { fmtClock, fmtDur, fmtMoney, fmtTok, type Frame, pad, padLeft, Row, type Shared, shortModel, type View } from "./frame.ts";
@@ -41,11 +41,27 @@ export class HistoryView implements View {
 		return this.s.cfg().historyRange;
 	}
 
+	private get filter(): HistoryFilter {
+		return this.s.cfg().historyFilter;
+	}
+
 	private setRange(r: HistoryRange) {
 		this.s.pref({ historyRange: r });
 		this.sel = 0;
 		this.top = 0;
 		this.detail = undefined;
+	}
+
+	private setFilter(filter: HistoryFilter) {
+		this.s.pref({ historyFilter: filter });
+		this.sel = 0;
+		this.top = 0;
+		this.detail = undefined;
+	}
+
+	/** The normal view is this conversation; the statistics row toggles to the full log. */
+	private toggleFilter() {
+		this.setFilter(this.filter === "all" ? "session" : "all");
 	}
 
 	/** Open the details of a record on the next render, e.g. from the overview's recent list. */
@@ -73,6 +89,8 @@ export class HistoryView implements View {
 		} else if (data === "r" || data === "R") {
 			const i = RANGE_CHOICES.indexOf(this.range) + 1;
 			this.setRange(RANGE_CHOICES[i % RANGE_CHOICES.length]!);
+		} else if (data === "a" || data === "A") {
+			this.toggleFilter();
 		} else if (data === "x" || data === "X") {
 			if (Date.now() - this.clearArmed < 4000) {
 				clearLog();
@@ -108,7 +126,9 @@ export class HistoryView implements View {
 		} catch {
 			session = undefined;
 		}
-		const entries = filterEntries(readLog(), this.range, "all", { session }, now);
+		const model = ctx.model ? modelKey(ctx.model) : undefined;
+		// Remove each conversation's bootstrap event before applying the date/scope filters.
+		const entries = filterEntries(withoutConversationFirst(readLog()), this.range, this.filter, { session, model }, now);
 		this.list = [...entries].reverse();
 		if (this.pendingAt !== undefined) {
 			const i = this.list.findIndex((e) => e.at === this.pendingAt);
@@ -133,6 +153,8 @@ export class HistoryView implements View {
 			r1.add(r === this.range ? th.bg("selectedBg", th.bold(th.fg("accent", label))) : th.fg("muted", label), () => this.setRange(r));
 			r1.add(" ");
 		}
+		const scope = ` ${tr(`filter_${this.filter}` as Key)} `;
+		r1.add(icon("filter", "accent", "h:filter")).add(th.bg("selectedBg", th.bold(th.fg("accent", scope))), () => this.toggleFilter());
 		const avg = sum.warms ? sum.warmCost / sum.warms : 0;
 		r1.right(
 			`${th.fg("success", tr("sum_warms", { n: sum.warms }))}  ${th.fg("text", fmtMoney(sum.warmCost))}  ${th.fg("dim", tr("avg_cost", { v: fmtMoney(avg) }))}`,
