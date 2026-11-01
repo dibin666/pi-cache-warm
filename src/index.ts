@@ -14,7 +14,7 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { LANG_CHOICES, type LangSetting, loadConfig, saveConfig } from "./config.ts";
-import { Engine } from "./engine.ts";
+import { Engine, modelKey } from "./engine.ts";
 import { type ClickTarget, hookFooterClick, unhookFooterClick } from "./footer-link.ts";
 import { t } from "./i18n.ts";
 import { Icons } from "./icons.ts";
@@ -118,7 +118,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("cachewarm", {
 		description: `${t("zh", "cmd_desc")} | ${t("en", "cmd_desc")}`,
 		getArgumentCompletions: (prefix) =>
-			["on", "off", "status", "now", "history", "models", "lang zh", "lang en", "lang auto"]
+			["on", "off", "status", "now", "history", "models", "force on", "force off", "lang zh", "lang en", "lang auto"]
 				.filter((v) => v.startsWith(prefix.trim()))
 				.map((v) => ({ value: v, label: v })),
 		handler: async (args, ctx) => {
@@ -141,6 +141,22 @@ export default function (pi: ExtensionAPI) {
 				apply({ lang: arg as LangSetting });
 				return notify(`lang = ${arg}`);
 			}
+			if (cmd === "force") {
+				if (arg !== "on" && arg !== "off") return notify("usage: /cachewarm force on|off", "error");
+				const model = ctx.model;
+				if (!model) return notify(t(lang, "n_model_unavailable"), "error");
+				if (model.api !== "anthropic-messages") return notify(t(lang, "n_force_api"), "error");
+				if (arg === "on" && !engine.ttlMs(model)) return notify(t(lang, "n_need_ttl"), "error");
+				const key = modelKey(model);
+				const forced = new Set(engine.cfg.forceModels);
+				const tracked = new Set(engine.cfg.models);
+				if (arg === "on") {
+					forced.add(key);
+					tracked.add(key);
+				} else forced.delete(key);
+				apply({ forceModels: [...forced], models: [...tracked] });
+				return notify(t(lang, arg === "on" ? "n_force_on" : "n_force_off"), arg === "on" ? "warning" : "info");
+			}
 			if (cmd === "now") {
 				const r = await engine.warm(true);
 				return notify(r.message, r.ok ? "info" : "error");
@@ -148,7 +164,7 @@ export default function (pi: ExtensionAPI) {
 			if (cmd === "status") {
 				const s = engine.status(ctx.model);
 				return notify(
-					`${t(lang, engine.cfg.enabled ? "n_status_on" : "n_status_off")} | ${s.modelKey ?? "-"} | ${s.state}${s.stopKey ? `:${s.stopKey}` : ""} | ${s.pluginWarms}+${s.builtinWarms}`,
+					`${t(lang, engine.cfg.enabled ? "n_status_on" : "n_status_off")} | ${s.modelKey ?? "-"} | ${s.state}${s.stopKey ? `:${s.stopKey}` : ""} | ${s.pluginWarms}+${s.builtinWarms}${s.forced ? " | force" : ""}`,
 				);
 			}
 			if (ctx.mode !== "tui") return notify(t(lang, "n_need_tui"), "warning");

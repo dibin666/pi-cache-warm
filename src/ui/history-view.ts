@@ -17,6 +17,7 @@ export function kindIcon(e: LogEntry): [IconName, string] {
 }
 
 export function kindLabel(tr: Shared["tr"], e: LogEntry): string {
+	if (e.kind === "warm" && e.force) return tr(e.ok ? "kind_forced" : "kind_force_failed");
 	if (e.kind === "warm") return e.ok ? tr(`series_${e.source ?? "plugin"}` as Key) : tr("series_failed");
 	return tr(`kind_${e.kind}` as Key);
 }
@@ -155,7 +156,8 @@ export class HistoryView implements View {
 		}
 		const scope = ` ${tr(`filter_${this.filter}` as Key)} `;
 		r1.add(icon("filter", "accent", "h:filter")).add(th.bg("selectedBg", th.bold(th.fg("accent", scope))), () => this.toggleFilter());
-		const avg = sum.warms ? sum.warmCost / sum.warms : 0;
+		const attempts = sum.warms + sum.failed;
+		const avg = attempts ? sum.warmCost / attempts : 0;
 		r1.right(
 			`${th.fg("success", tr("sum_warms", { n: sum.warms }))}  ${th.fg("text", fmtMoney(sum.warmCost))}  ${th.fg("dim", tr("avg_cost", { v: fmtMoney(avg) }))}`,
 			W,
@@ -201,7 +203,7 @@ export class HistoryView implements View {
 			const [ic, tok] = kindIcon(e);
 			const selected = i === this.sel;
 			const cost = e.kind === "stop" ? "" : `${e.kind === "rebuild" ? "+" : ""}${fmtMoney(e.cost)}`;
-			const tags = [e.ask ? th.fg("warning", tr("tag_ask")) : "", e.sub ? th.fg("muted", tr("sub_short")) : ""].filter(Boolean).join(" ");
+			const tags = [e.ask ? th.fg("warning", tr("tag_ask")) : "", e.sub ? th.fg("muted", tr("sub_short")) : "", e.partial ? th.fg("warning", tr("tag_partial")) : ""].filter(Boolean).join(" ");
 			const r = new Row()
 				.add(icon(ic, tok, `h:row:${i - this.top}:${ic}:${tok}`))
 				.add(" ")
@@ -252,7 +254,7 @@ export class HistoryView implements View {
 		kv("clock", "d_time", `${fullDate(e.at)}  ${th.fg("dim", tr("last_ago_short", { d: fmtDur(now - e.at) }))}`, "time");
 		kv("cpu", "d_model", e.model, "model");
 		if (e.session) kv("link", "d_session", th.fg("dim", e.session), "session");
-		const flags = [e.sub ? tr("sub_reads_free") : "", e.ask ? tr("tag_ask_long") : ""].filter(Boolean).join(" · ");
+		const flags = [e.sub ? tr("sub_reads_free") : "", e.ask ? tr("tag_ask_long") : "", e.force ? tr("tag_force") : ""].filter(Boolean).join(" · ");
 		if (flags) kv("tag", "d_flags", th.fg("warning", flags), "flags");
 
 		if (e.kind !== "stop") {
@@ -281,6 +283,7 @@ export class HistoryView implements View {
 			f.push(total);
 			if (e.avoid) kv("check", "d_avoid", th.fg("success", fmtMoney(e.avoid)), "avoid");
 		}
+		if (e.partial) kv("info", "d_usage", th.fg("warning", tr("d_partial_usage")), "partial");
 		if (e.ms) kv("pulse", "d_latency", `${e.ms} ms`, "ms");
 		if (e.gapMs) kv("moon", "d_gap", fmtDur(e.gapMs), "gap");
 		if (e.reason) kv("info", "d_reason", tr(`why_${e.reason}` as Key) || tr(`state_stopped_${e.reason}` as Key) || e.reason, "reason");

@@ -25,6 +25,7 @@
 <path d="M18.8 34V54M930.8 34V54" stroke="#7f74c9" stroke-width="1.3" fill="none" stroke-linecap="square"/>
 <path d="M18.8 54V74M18.8 64H23.6M23.6 64H33.2M33.2 64H42.800000000000004M42.8 64H52.4M52.4 64H62M62 64H71.6M71.6 64H81.19999999999999M81.2 64H90.8M90.8 64H100.39999999999999M100.39999999999999 64H109.99999999999999M110 64H119.6M119.6 64H129.2M129.2 64H138.79999999999998M138.8 64H148.4M148.4 64H158M158 64H167.6M167.6 64H177.2M177.2 64H186.79999999999998M186.79999999999998 64H196.39999999999998M196.4 64H206M206 64H215.6M215.6 64H225.2M225.2 64H234.79999999999998M234.79999999999998 64H244.39999999999998M244.39999999999998 64H253.99999999999997M254 64H263.6M263.6 64H273.20000000000005M273.2 64H282.8M282.8 64H292.40000000000003M292.4 64H302M302 64H311.6M311.59999999999997 64H321.2M321.2 64H330.8M330.8 64H340.40000000000003M340.4 64H350M350 64H359.6M359.59999999999997 64H369.2M369.2 64H378.8M378.8 64H388.40000000000003M388.4 64H398M398 64H407.6M407.59999999999997 64H417.2M417.2 64H426.8M426.8 64H436.40000000000003M436.4 64H446M446 64H455.6M455.59999999999997 64H465.2M465.2 64H474.8M474.79999999999995 64H484.4M484.4 64H494M494 64H503.6M503.59999999999997 64H513.1999999999999M513.2 64H522.8000000000001M522.8 64H532.4M532.4 64H542M542 64H551.6M551.6 64H561.2M561.1999999999999 64H570.8M570.8 64H580.4M580.4 64H590M590 64H599.6M599.6 64H609.2M609.1999999999999 64H618.8M618.8 64H628.4M628.4 64H638M638 64H647.6M647.6 64H657.2M657.1999999999999 64H666.8M666.8 64H676.4M676.4 64H686M686 64H695.6M695.6 64H705.2M705.1999999999999 64H714.8M714.8 64H724.4M724.4 64H734M734 64H743.6M743.6 64H753.2M753.1999999999999 64H762.8M762.8 64H772.4M772.4 64H782M782 64H791.6M791.6 64H801.2M801.1999999999999 64H810.8M810.8 64H820.4M820.4 64H830M830 64H839.6M839.6 64H849.2M849.1999999999999 64H858.8M858.8 64H868.4M868.4 64H878M878 64H887.6M887.6 64H897.2M897.1999999999999 64H906.8M906.8 64H916.4M916.4 64H926M930.8 54V74M926 64H930.8" stroke="#7f74c9" stroke-width="1.3" fill="none" stroke-linecap="square"/>
 <rect x="52.4" y="74" width="67.2" height="20" fill="#283447"/>
+<rect x="350.0" y="74" width="96.0" height="20" fill="#283447"/>
 <text y="88.8" x="33.2" fill="#b4a4f7">▤</text>
 <text y="88.8" x="62.0" fill="#b4a4f7" font-weight="700">6</text>
 <text y="88.8" x="72.0" fill="#b4a4f7" font-weight="700" font-size="18.4">小</text>
@@ -36,6 +37,11 @@
 <text y="88.8" x="235.2" fill="#9aa0b4" font-size="18.4">天</text>
 <text y="88.8" x="282.8 292.4" fill="#9aa0b4">30</text>
 <text y="88.8" x="302.4" fill="#9aa0b4" font-size="18.4">天</text>
+<text y="88.8" x="340.4" fill="#b4a4f7">▽</text>
+<text y="88.8" x="360.0" fill="#b4a4f7" font-weight="700" font-size="18.4">当</text>
+<text y="88.8" x="379.2" fill="#b4a4f7" font-weight="700" font-size="18.4">前</text>
+<text y="88.8" x="398.4" fill="#b4a4f7" font-weight="700" font-size="18.4">对</text>
+<text y="88.8" x="417.6" fill="#b4a4f7" font-weight="700" font-size="18.4">话</text>
 <text y="88.8" x="590.4" fill="#7ec699" font-size="18.4">预</text>
 <text y="88.8" x="609.6" fill="#7ec699" font-size="18.4">热</text>
 <text y="88.8" x="638.0 647.6" fill="#7ec699">60</text>
@@ -45,7 +51,7 @@
 <text y="88.8" x="792.0" fill="#686d84" font-size="18.4">均</text>
 <text y="88.8" x="811.2" fill="#686d84" font-size="18.4">每</text>
 <text y="88.8" x="830.4" fill="#686d84" font-size="18.4">次</text>
-<text y="88.8" x="858.8 868.4 878.0 887.6 897.2 906.8" fill="#686d84">$0.061</text>
+<text y="88.8" x="858.8 868.4 878.0 887.6 897.2 906.8" fill="#686d84">$0.060</text>
 <path d="M18.8 74V94M930.8 74V94" stroke="#7f74c9" stroke-width="1.3" fill="none" stroke-linecap="square"/>
 <rect x="455.6" y="94.0" width="10.2" height="20.0" fill="#e8787a"/>
 <rect x="465.2" y="94.0" width="10.2" height="20.0" fill="#e8787a"/>
@@ -427,17 +433,26 @@
 <text y="508.8" x="235.2" fill="#9aa0b4" font-size="18.4">详</text>
 <text y="508.8" x="254.4" fill="#9aa0b4" font-size="18.4">情</text>
 <text y="508.8" x="282.8" fill="#9aa0b4">·</text>
-<text y="508.8" x="302.0" fill="#9aa0b4">R</text>
+<text y="508.8" x="302.0" fill="#9aa0b4">A</text>
 <text y="508.8" x="321.6" fill="#9aa0b4" font-size="18.4">切</text>
 <text y="508.8" x="340.8" fill="#9aa0b4" font-size="18.4">换</text>
-<text y="508.8" x="360.0" fill="#9aa0b4" font-size="18.4">范</text>
-<text y="508.8" x="379.2" fill="#9aa0b4" font-size="18.4">围</text>
-<text y="508.8" x="407.6" fill="#9aa0b4">·</text>
-<text y="508.8" x="426.8" fill="#9aa0b4">X</text>
-<text y="508.8" x="446.4" fill="#9aa0b4" font-size="18.4">两</text>
-<text y="508.8" x="465.6" fill="#9aa0b4" font-size="18.4">次</text>
-<text y="508.8" x="484.8" fill="#9aa0b4" font-size="18.4">清</text>
-<text y="508.8" x="504.0" fill="#9aa0b4" font-size="18.4">空</text>
+<text y="508.8" x="360.0" fill="#9aa0b4" font-size="18.4">当</text>
+<text y="508.8" x="379.2" fill="#9aa0b4" font-size="18.4">前</text>
+<text y="508.8" x="398.0" fill="#9aa0b4">/</text>
+<text y="508.8" x="408.0" fill="#9aa0b4" font-size="18.4">全</text>
+<text y="508.8" x="427.2" fill="#9aa0b4" font-size="18.4">部</text>
+<text y="508.8" x="455.6" fill="#9aa0b4">·</text>
+<text y="508.8" x="474.8" fill="#9aa0b4">R</text>
+<text y="508.8" x="494.4" fill="#9aa0b4" font-size="18.4">切</text>
+<text y="508.8" x="513.6" fill="#9aa0b4" font-size="18.4">换</text>
+<text y="508.8" x="532.8" fill="#9aa0b4" font-size="18.4">范</text>
+<text y="508.8" x="552.0" fill="#9aa0b4" font-size="18.4">围</text>
+<text y="508.8" x="580.4" fill="#9aa0b4">·</text>
+<text y="508.8" x="599.6" fill="#9aa0b4">X</text>
+<text y="508.8" x="619.2" fill="#9aa0b4" font-size="18.4">两</text>
+<text y="508.8" x="638.4" fill="#9aa0b4" font-size="18.4">次</text>
+<text y="508.8" x="657.6" fill="#9aa0b4" font-size="18.4">清</text>
+<text y="508.8" x="676.8" fill="#9aa0b4" font-size="18.4">空</text>
 <text y="508.8" x="858.8" fill="#9aa0b4">⊕</text>
 <text y="508.8" x="878.4" fill="#9aa0b4" font-size="18.4">中</text>
 <text y="508.8" x="897.6" fill="#9aa0b4" font-size="18.4">文</text>

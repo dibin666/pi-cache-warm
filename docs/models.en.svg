@@ -85,6 +85,10 @@
 <text y="268.8" x="100.4 110.0 119.6 129.2" fill="#d8dbe8">warm</text>
 <text y="268.8" x="273.2 282.8" fill="#7ec699" font-weight="700">ON</text>
 <path d="M18.8 254V274M930.8 254V274" stroke="#7f74c9" stroke-width="1.3" fill="none" stroke-linecap="square"/>
+<text y="288.8" x="33.2" fill="#9aa0b4">↯</text>
+<text y="288.8" x="52.4 62.0 71.6 81.2 90.8" fill="#d8dbe8">Force</text>
+<text y="288.8" x="110.0 119.6 129.2 138.8 148.4 158.0 167.6" fill="#d8dbe8">warming</text>
+<text y="288.8" x="273.2 282.8 292.4" fill="#686d84">OFF</text>
 <path d="M18.8 274V294M930.8 274V294" stroke="#7f74c9" stroke-width="1.3" fill="none" stroke-linecap="square"/>
 <path d="M18.8 294V314M930.8 294V314" stroke="#7f74c9" stroke-width="1.3" fill="none" stroke-linecap="square"/>
 <path d="M18.8 314V334M930.8 314V334" stroke="#7f74c9" stroke-width="1.3" fill="none" stroke-linecap="square"/>

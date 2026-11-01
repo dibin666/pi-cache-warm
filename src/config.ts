@@ -14,6 +14,8 @@ export interface Config {
 	lang: LangSetting;
 	/** Models kept warm, as "provider/modelId". */
 	models: string[];
+	/** Opt in to preserving fixed thinking budgets and cancelling a streaming cache refresh early. */
+	forceModels: string[];
 	/** Models used through an official Claude subscription: cache reads are not billed. */
 	subscription: string[];
 	/** While an rpiv ask_user_question dialog waits for the user, keep the cache warm regardless of limits. */
@@ -36,6 +38,7 @@ export const DEFAULTS: Config = {
 	enabled: true,
 	lang: "auto",
 	models: [],
+	forceModels: [],
 	subscription: [],
 	askWarm: true,
 	ignoreEconomics: true,
@@ -70,6 +73,7 @@ export function loadConfig(): Config {
 			const { iconMode: _legacy, ...rest } = raw;
 			const cfg: Config = { ...DEFAULTS, ...rest };
 			if (!Array.isArray(cfg.models)) cfg.models = [...DEFAULTS.models];
+			cfg.forceModels = Array.isArray(cfg.forceModels) ? [...new Set(cfg.forceModels.filter((v) => typeof v === "string" && v.includes("/")))] : [];
 			if (!Array.isArray(cfg.subscription)) cfg.subscription = [];
 			cfg.lang = pick(LANG_CHOICES, cfg.lang, "auto");
 			cfg.historyRange = pick(RANGE_CHOICES, cfg.historyRange, "24h");
@@ -84,7 +88,7 @@ export function loadConfig(): Config {
 	} catch {
 		/* fall through to defaults */
 	}
-	return { ...DEFAULTS, models: [...DEFAULTS.models], subscription: [] };
+	return { ...DEFAULTS, models: [...DEFAULTS.models], forceModels: [], subscription: [] };
 }
 
 export function saveConfig(cfg: Config): void {

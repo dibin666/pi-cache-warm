@@ -5,10 +5,12 @@
  * - Overrides pi's built-in `cache_warming_decision` for the selected models.
  * - Takes over after the built-in warmer stops: replays the last request with a tiny output cap
  *   shortly before the cache expires (Anthropic Messages, OpenAI Responses, OpenAI Chat Completions).
+ * - Opt-in fixed-budget warming preserves the original request and cancels at initial cache usage.
  * - Records every warm (own and built-in), every cache rebuild and every stop in the history log.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Config } from "./config.ts";
+import { readAnthropicStart, UnverifiedCacheError } from "./anthropic-stream.ts";
 import { appendLog, type WarmSource } from "./history.ts";
 import { resolveLang, t, type Lang } from "./i18n.ts";
 
@@ -16,6 +18,8 @@ const IDLE_CONTINUATION_PROBABILITY = 0.15;
 const MIN_EXPECTED_SAVINGS = 0.05;
 const MARGIN_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 120_000;
+const FORCED_TIMEOUT_MS = 30_000;
+const FORCED_CACHE_HIT_RATIO = 0.9;
 const WARM_OUTPUT_LIMIT = 16;
 const CACHE_HIT_RATIO = 0.3;
 
@@ -130,7 +134,7 @@ interface Req {
 	model: AnyModel;
 	api: string;
 	payload?: any;
-	headers: Record<string, string>;
+	headers: Record<string, string | null>;
 	isWarm: boolean;
 	usage?: Usage;
 	done: boolean;
@@ -145,13 +149,15 @@ interface Snapshot {
 	model: AnyModel;
 	key: string;
 	payload?: any;
-	headers: Record<string, string>;
+	headers: Record<string, string | null>;
 	/** When the provider last saw this prefix (real request or any warm). */
 	lastTouch: number;
 	/** When the last real (non-warm) request started. */
 	lastReal: number;
 	/** A real request or warm has reported a usable cache read/write. */
 	cacheEstablished: boolean;
+	/** Provider-reported input size of the captured real request. */
+	promptTokens?: number;
 	pluginWarms: number;
 	builtinWarms: number;
 	broken: boolean;
@@ -167,6 +173,9 @@ export interface WarmRecord {
 	cost: number;
 	error?: string;
 	ask?: boolean;
+	force?: boolean;
+	/** Streaming refresh was cancelled at message_start; final usage is unavailable. */
+	partial?: boolean;
 }
 
 export type StateId =
@@ -196,6 +205,7 @@ export interface Status {
 	estWarmCost?: number;
 	estRebuildCost?: number;
 	subscription?: boolean;
+	forced?: boolean;
 	asking?: boolean;
 	askSince?: number;
 	last?: WarmRecord;
@@ -213,6 +223,9 @@ export class Engine {
 	private nextAt?: number;
 	private last?: WarmRecord;
 	private budgetThinking = false;
+	private replay?: AbortController;
+	/** Pi assembles headers before the payload hook. Keep them for that request, not the previous one. */
+	private pendingHeaders?: Record<string, string | null>;
 	private listeners = new Set<() => void>();
 	/** Open ask_user_question dialogs (tool call ids). */
 	private asks = new Set<string>();
@@ -230,8 +243,11 @@ export class Engine {
 	}
 
 	setConfig(cfg: Config) {
+		const s = this.snap;
+		const wasForced = s && this.isForced(s.model);
 		this.cfg = cfg;
-		if (this.stopKey !== "broken") this.stopKey = undefined;
+		if (!cfg.enabled || (s && (!this.isTracked(s.model) || wasForced !== this.isForced(s.model)))) this.cancelReplay();
+		if (!s?.broken) this.stopKey = undefined;
 		this.schedule();
 	}
 
@@ -266,7 +282,7 @@ export class Engine {
 		if (this.asking() === before) return;
 		this.askSince = this.asking() ? Date.now() : undefined;
 		// Entering an ask lifts stops caused by limits; leaving restores normal rules.
-		if (this.asking() && this.stopKey && this.stopKey !== "broken" && this.stopKey !== "expired") this.stopKey = undefined;
+		if (this.asking() && this.stopKey && !this.snap?.broken && this.stopKey !== "expired") this.stopKey = undefined;
 		this.schedule();
 	}
 
@@ -278,6 +294,10 @@ export class Engine {
 	isTracked(model: AnyModel | undefined): boolean {
 		if (!model || !this.cfg.enabled) return false;
 		return this.cfg.models.includes(modelKey(model)) || this.askOverride(model);
+	}
+
+	isForced(model: AnyModel | undefined): boolean {
+		return !!model && this.cfg.forceModels.includes(modelKey(model));
 	}
 
 	isSubscription(model: AnyModel | undefined): boolean {
@@ -339,11 +359,18 @@ export class Engine {
 				at: Date.now(),
 				model: m,
 				api: String(m.api ?? ""),
-				headers: {},
+				headers: { ...this.pendingHeaders },
 				isWarm: typeof limit === "number" && limit <= WARM_OUTPUT_LIMIT,
 				done: false,
 				ask: this.asking(),
 			};
+			this.pendingHeaders = undefined;
+			if (!req.isWarm) {
+				this.cancelReplay();
+				if (this.timer) clearTimeout(this.timer);
+				this.timer = undefined;
+				this.nextAt = undefined;
+			}
 			if (!req.isWarm && TAKEOVER_APIS.has(req.api)) {
 				try {
 					req.payload = structuredClone(p);
@@ -356,9 +383,7 @@ export class Engine {
 		});
 
 		pi.on("before_provider_headers", (event) => {
-			const req = this.queue[this.queue.length - 1];
-			if (!req) return;
-			for (const [k, v] of Object.entries(event.headers ?? {})) if (typeof v === "string") req.headers[k] = v;
+			this.pendingHeaders = event.headers;
 		});
 
 		pi.on("after_provider_response", (event) => {
@@ -377,7 +402,15 @@ export class Engine {
 			const req = this.live;
 			if (!req) return;
 			const r = streamUsage(req.api, event.data);
-			if (r.usage) req.usage = mergeUsage(req.usage, r.usage);
+			if (r.usage) {
+				req.usage = mergeUsage(req.usage, r.usage);
+				const s = this.snap;
+				if (!req.isWarm && s && s.key === modelKey(req.model) && s.lastReal === req.at) {
+					const wasReady = !!s.promptTokens;
+					s.promptTokens = req.usage!.input + req.usage!.read + req.usage!.write;
+					if (!wasReady && this.budgetThinking && this.isForced(s.model)) this.schedule();
+				}
+			}
 			if (r.final) this.finishLive();
 		});
 
@@ -423,11 +456,19 @@ export class Engine {
 			if (!this.isTracked(ctx.model)) return;
 			if (this.askOverride(ctx.model)) return { action: "warm" };
 			if (this.keepWarmExceeded()) return { action: "stop" };
-			if (this.cfg.ignoreEconomics) return { action: "warm" };
+			if (this.cfg.ignoreEconomics || this.isForced(ctx.model)) return { action: "warm" };
 		});
 	}
 
+	private cancelReplay() {
+		const replay = this.replay;
+		this.replay = undefined;
+		replay?.abort();
+	}
+
 	private clear() {
+		this.cancelReplay();
+		this.pendingHeaders = undefined;
 		if (this.timer) clearTimeout(this.timer);
 		this.timer = undefined;
 		this.snap = undefined;
@@ -461,7 +502,7 @@ export class Engine {
 			broken: same ? prev!.broken : false,
 			failures: 0,
 		};
-		if (this.stopKey !== "broken" || !same) this.stopKey = undefined;
+		if (!same || !prev!.broken) this.stopKey = undefined;
 		this.schedule();
 	}
 
@@ -485,7 +526,10 @@ export class Engine {
 		const u = req.usage;
 		if (!u) return;
 		const s = this.snap;
-		if (s && s.key === modelKey(req.model) && s.lastReal === req.at && hasCachedPrefix(u)) s.cacheEstablished = true;
+		if (s && s.key === modelKey(req.model) && s.lastReal === req.at) {
+			s.promptTokens = u.input + u.read + u.write;
+			if (hasCachedPrefix(u)) s.cacheEstablished = true;
+		}
 		if (req.prevTouch === undefined) return;
 		// Keep cold-start misses for auditing, but mark them so the views can hide them.
 		const total = u.input + u.read + u.write;
@@ -547,7 +591,8 @@ export class Engine {
 	// ── scheduling ───────────────────────────────────────────────────────────
 
 	private canTakeover(s: Snapshot): boolean {
-		return !!s.payload && TAKEOVER_APIS.has(s.model.api) && !this.budgetThinking;
+		return !!s.payload && TAKEOVER_APIS.has(s.model.api) &&
+			(!this.budgetThinking || (this.isForced(s.model) && (s.promptTokens ?? 0) > 0));
 	}
 
 	private schedule() {
@@ -570,7 +615,7 @@ export class Engine {
 	}
 
 	private economicsOk(s: Snapshot): boolean {
-		if (this.cfg.ignoreEconomics || this.askOverride(s.model)) return true;
+		if (this.cfg.ignoreEconomics || this.askOverride(s.model) || this.isForced(s.model)) return true;
 		const tokens = this.contextTokens() ?? 0;
 		if (!tokens) return false;
 		const p = this.price(s.model);
@@ -624,13 +669,16 @@ export class Engine {
 
 	// ── replay ───────────────────────────────────────────────────────────────
 
-	private buildRequest(s: Snapshot, auth: { apiKey?: string; headers?: Record<string, string | null>; baseUrl?: string }) {
+	private buildRequest(s: Snapshot, auth: { apiKey?: string; headers?: Record<string, string | null>; baseUrl?: string }, early = false) {
 		const api: string = s.model.api;
 		const body = structuredClone(s.payload);
 		const base = String(auth.baseUrl ?? s.model.baseUrl ?? "").replace(/\/+$/, "");
 		const headers: Record<string, string> = { "content-type": "application/json" };
 		for (const src of [s.model.headers, auth.headers, s.headers]) {
-			for (const [k, v] of Object.entries(src ?? {})) if (typeof v === "string") headers[k.toLowerCase()] = v;
+			for (const [k, v] of Object.entries(src ?? {})) {
+				if (typeof v === "string") headers[k.toLowerCase()] = v;
+				else if (v === null) delete headers[k.toLowerCase()];
+			}
 		}
 		for (const k of ["content-length", "host", "accept-encoding", "connection"]) delete headers[k];
 		headers.accept = "application/json";
@@ -641,8 +689,21 @@ export class Engine {
 		if (api === "anthropic-messages") {
 			const betas: string[] | undefined = Array.isArray(body.betas) ? body.betas : undefined;
 			delete body.betas;
-			body.max_tokens = 1;
-			body.stream = false;
+			if (early) {
+				// Keep both values exactly as sent in the real request: changing the thinking budget breaks the cache.
+				if (!Number.isSafeInteger(body.thinking?.budget_tokens) || body.thinking.budget_tokens < 1 ||
+					!Number.isSafeInteger(body.max_tokens) || body.max_tokens <= body.thinking.budget_tokens)
+					throw new UnverifiedCacheError("The captured thinking budget/output limit is invalid for a forced refresh");
+			} else body.max_tokens = 1;
+			body.stream = early;
+			if (early) headers.accept = "text/event-stream";
+			const openRouter = s.model.provider === "openrouter" || String(s.model.baseUrl).includes("openrouter.ai");
+			if ((s.model.compat?.sendSessionAffinityHeaders ?? openRouter) && !auth.apiKey?.includes("sk-ant-oat")) {
+				const name = (s.model.compat?.sessionAffinityFormat ?? (openRouter ? "openrouter" : undefined)) === "openrouter" ? "x-session-id" : "x-session-affinity";
+				const session = this.sessionId();
+				if (session) headers[name] ??= session;
+			}
+			if (auth.apiKey?.includes("sk-ant-oat")) headers["x-app"] ??= "cli";
 			headers["anthropic-version"] ??= "2023-06-01";
 			if (betas?.length && !headers["anthropic-beta"]) headers["anthropic-beta"] = betas.join(",");
 			if (auth.apiKey && !headers["x-api-key"] && !headers.authorization) {
@@ -667,94 +728,110 @@ export class Engine {
 		return { url, headers, body };
 	}
 
-	/** Replay the last real request with a tiny output cap. Returns a user-facing message. */
+	/** Replay the original prefix; opted-in budget thinking uses an early-cancelled stream. */
 	async warm(manual: boolean): Promise<{ ok: boolean; message: string }> {
 		const lang = this.lang;
 		const s = this.snap;
 		const ctx = this.ctx;
 		if (!s || !ctx || !s.payload) return { ok: false, message: t(lang, "n_no_snapshot") };
-		if (this.budgetThinking) return { ok: false, message: t(lang, "n_budget_thinking") };
+		const force = this.isForced(s.model);
+		const early = force && this.budgetThinking && s.model.api === "anthropic-messages";
+		if (this.budgetThinking && !force) return { ok: false, message: t(lang, "n_budget_thinking") };
+		if (early && !s.promptTokens) return { ok: false, message: t(lang, "n_force_no_usage") };
 		if (!this.canTakeover(s)) return { ok: false, message: t(lang, "state_unsupported") };
 		if (this.busy) return { ok: false, message: t(lang, "state_busy") };
 		const source: WarmSource = manual ? "manual" : "plugin";
+		const session = this.sessionId();
+		const ask = this.asking() || undefined;
+		const controller = new AbortController();
+		this.replay = controller;
+		if (this.timer) clearTimeout(this.timer);
+		this.timer = undefined;
+		this.nextAt = undefined;
 		this.busy = true;
 		this.emit();
 		const started = Date.now();
+		const timeout = setTimeout(() => controller.abort(new Error("Cache refresh timed out")), early ? FORCED_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+		timeout.unref?.();
+		const current = () => this.snap === s && this.replay === controller;
+		let u: Usage = { input: 0, read: 0, write: 0, output: 0 };
+		let partial = false;
+		let mismatch = false;
 		try {
 			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(s.model);
+			if (!current()) return { ok: false, message: t(lang, "n_warm_cancelled") };
+			controller.signal.throwIfAborted();
 			if (!auth.ok) throw new Error(auth.error);
-			const { url, headers, body } = this.buildRequest(s, auth);
-			const res = await fetch(url, {
-				method: "POST",
-				headers,
-				body: JSON.stringify(body),
-				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-			});
-			const text = await res.text();
-			if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
-			const u = usageFrom(s.model.api, JSON.parse(text).usage) ?? { input: 0, read: 0, write: 0, output: 0 };
-			const cost = costOf(this.price(s.model), u);
+			const { url, headers, body } = this.buildRequest(s, auth, early);
+			const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: controller.signal });
+			if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
+			if (early) {
+				partial = true;
+				const event = await readAnthropicStart(res, () => controller.abort());
+				const raw = event.message?.usage;
+				if (!raw || [raw.input_tokens, raw.cache_read_input_tokens, raw.cache_creation_input_tokens ?? 0, raw.output_tokens ?? 0]
+					.some((v) => typeof v !== "number" || !Number.isFinite(v) || v < 0))
+					throw new UnverifiedCacheError(t(lang, "n_cache_unverified"));
+				u = usageFrom(s.model.api, raw) ?? u;
+			} else {
+				u = usageFrom(s.model.api, JSON.parse(await res.text()).usage) ?? u;
+			}
+			if (!current()) return { ok: false, message: t(lang, "n_warm_cancelled") };
+			const total = u.input + u.read + u.write;
+			// A small tools/system-only hit must not be reported as preserving the conversation cache.
+			mismatch = early
+				? u.read <= 0 || u.read < Math.max(total, s.promptTokens ?? 0) * FORCED_CACHE_HIT_RATIO
+				: total > 1024 && u.read < total * 0.5;
+			if (mismatch) throw new UnverifiedCacheError(t(lang, "n_broken", { read: u.read, write: u.write + u.input }));
 			if (hasCachedPrefix(u)) s.cacheEstablished = true;
-			s.lastTouch = Date.now();
+			// TTL runs from request start, not from response completion.
+			s.lastTouch = started;
 			s.pluginWarms += 1;
 			s.failures = 0;
-			this.last = { at: s.lastTouch, ok: true, source, read: u.read, write: u.write, cost, ask: this.asking() || undefined };
-			appendLog({
-				at: s.lastTouch,
-				kind: "warm",
-				source,
-				model: s.key,
-				session: this.sessionId(),
-				ok: true,
-				...u,
-				cost,
-				avoid: missPremium(this.price(s.model), u.read),
-				ms: s.lastTouch - started,
-				sub: this.isSubscription(s.model) || undefined,
-				ask: this.asking() || undefined,
-			});
-			const total = u.input + u.read + u.write;
-			if (total > 1024 && u.read < total * 0.5) {
-				// The replay did not hit the existing cache: our request differs from pi's.
-				s.broken = true;
-				if (ctx.hasUI) ctx.ui.notify(t(lang, "n_broken", { read: u.read, write: u.write + u.input }), "warning");
-				this.stop("broken");
-			} else {
-				this.schedule();
+			// A user may explicitly retry a stopped replay. Only a verified hit lifts its safety stop.
+			if (s.broken) {
+				s.broken = false;
+				this.stopKey = undefined;
 			}
-			return { ok: true, message: t(lang, "n_warmed", { read: u.read, write: u.write, cost: cost.toFixed(4) }) };
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			this.last = { at: Date.now(), ok: false, source, read: 0, write: 0, cost: 0, error: msg };
+			const cost = costOf(this.price(s.model), u);
+			this.last = { at: started, ok: true, source, read: u.read, write: u.write, cost, ask, force: force || undefined, partial: partial || undefined };
 			appendLog({
-				at: Date.now(),
-				kind: "warm",
-				source,
-				model: s.key,
-				session: this.sessionId(),
-				ok: false,
-				input: 0,
-				read: 0,
-				write: 0,
-				output: 0,
-				cost: 0,
-				ms: Date.now() - started,
-				error: msg.slice(0, 300),
-				ask: this.asking() || undefined,
+				at: started, kind: "warm", source, model: s.key, session, ok: true, ...u, cost,
+				avoid: missPremium(this.price(s.model), u.read), ms: Date.now() - started,
+				sub: this.isSubscription(s.model) || undefined, ask, force: force || undefined, partial: partial || undefined,
+			});
+			this.schedule();
+			return { ok: true, message: t(lang, early ? "n_force_warmed" : "n_warmed", { read: u.read, write: u.write, cost: cost.toFixed(4) }) };
+		} catch (err) {
+			if (!current()) return { ok: false, message: t(lang, "n_warm_cancelled") };
+			const msg = err instanceof Error ? err.message : String(err);
+			const cost = costOf(this.price(s.model), u);
+			this.last = { at: started, ok: false, source, read: u.read, write: u.write, cost, error: msg, ask, force: force || undefined, partial: partial || undefined };
+			appendLog({
+				at: started, kind: "warm", source, model: s.key, session, ok: false, ...u, cost,
+				ms: Date.now() - started, error: msg.slice(0, 300), sub: this.isSubscription(s.model) || undefined,
+				ask, force: force || undefined, partial: partial || undefined,
 			});
 			s.failures += 1;
 			const ttl = this.ttlMs(s.model) ?? 0;
-			if (!manual) {
+			if (err instanceof UnverifiedCacheError || early) {
+				// Never keep spending on a forced request whose session-cache refresh cannot be verified.
+				s.broken = true;
+				this.stop(mismatch ? "broken" : "unverified");
+			} else if (!manual) {
 				if (s.failures >= 3 || Date.now() > s.lastTouch + ttl - 15_000) this.stop("failed");
 				else {
-					// Retry soon, still inside the TTL.
 					this.nextAt = Date.now() + 20_000;
+					if (this.timer) clearTimeout(this.timer);
 					this.timer = setTimeout(() => void this.fire(), 20_000);
 					this.timer.unref?.();
 				}
 			}
 			return { ok: false, message: t(lang, "n_warm_failed", { err: msg }) };
 		} finally {
+			clearTimeout(timeout);
+			controller.abort();
+			if (this.replay === controller) this.replay = undefined;
 			this.busy = false;
 			this.emit();
 		}
@@ -793,6 +870,7 @@ export class Engine {
 		const out: Status = { ...base, modelKey: key, api, ttlMs: ttl, takeover: TAKEOVER_APIS.has(api) };
 		const tokens = this.contextTokens();
 		out.subscription = this.isSubscription(model);
+		out.forced = this.isForced(model);
 		if (tokens) {
 			const p = this.price(model);
 			out.tokens = tokens;
@@ -803,10 +881,11 @@ export class Engine {
 		if (!this.isTracked(model)) return { ...out, state: "untracked" };
 		if (!ttl) return { ...out, state: "nottl" };
 		if (!out.takeover) return { ...out, state: "unsupported" };
+		// Early-cancelled streams do not have a reliable one-token cost estimate either.
+		if (this.budgetThinking) out.estWarmCost = undefined;
 		if (this.busy) return { ...out, state: "busy" };
-		// A one-token cost estimate is misleading when that request cannot be sent.
-		if (this.budgetThinking) return { ...out, state: "thinking", estWarmCost: undefined };
-		if (!s || s.key !== key) return { ...out, state: "waiting" };
+		if (this.budgetThinking && !out.forced) return { ...out, state: "thinking" };
+		if (!s || s.key !== key || (this.budgetThinking && out.forced && !s.promptTokens)) return { ...out, state: "waiting" };
 		out.lastTouch = s.lastTouch;
 		out.lastReal = s.lastReal;
 		if (this.stopKey || s.broken) return { ...out, state: "stopped", stopKey: this.stopKey ?? "broken" };

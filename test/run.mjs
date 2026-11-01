@@ -62,11 +62,11 @@ for (const f of files) {
 }
 const dynamic = {
 	state_: ["off", "untracked", "unsupported", "nottl", "waiting", "scheduled", "busy", "thinking", "stopped_short"],
-	state_stopped_: ["maxDuration", "expired", "broken", "economics", "auth", "failed"],
+	state_stopped_: ["maxDuration", "expired", "broken", "economics", "auth", "failed", "unverified"],
 	mode_: ["off", "streaming", "idle"],
 	src_: ["plugin", "builtin"],
 	kind_: ["rebuild", "stop"],
-	why_: ["changed", "expired", "untracked", "off", "maxDuration", "broken", "economics", "failed", "auth"],
+	why_: ["changed", "expired", "untracked", "off", "maxDuration", "broken", "economics", "failed", "auth", "unverified"],
 	range_: ["6h", "24h", "7d", "30d"],
 	series_: ["plugin", "builtin", "manual", "failed", "rebuild"],
 };
@@ -629,6 +629,9 @@ console.log(`tui: ${cases.length} renders checked`);
 		globalThis.fetch = originalFetch;
 	}
 }
+
+const { runForcedChecks } = await import("./forced.mjs");
+await runForcedChecks({ jiti, src, agentDir, ctx, engine, pi, open, draw, click, strip, fail });
 
 console.log(failures ? `${failures} failure(s)` : "all checks passed");
 process.exit(failures ? 1 : 0);

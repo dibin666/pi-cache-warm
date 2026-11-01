@@ -149,6 +149,7 @@ export class OverviewView implements View {
 		r1.add(th.bold(ctx.model ? shortModel(modelKey(ctx.model)) : tr("none")));
 		if (st.ttlMs) r1.add("  ").add(icon("database", "muted", "ov:ttl")).add(th.fg("muted", ` ${fmtTtl(st.ttlMs / 1000)}`));
 		if (st.subscription) r1.add("  ").add(icon("crown", "warning", "ov:sub")).add(th.fg("warning", ` ${tr("sub_badge")}`));
+		if (st.forced) r1.add(th.fg("warning", `  ${tr("tag_force")}`));
 		const sw = `${th.fg(tracked ? "success" : "dim", `${tr("keep_warm")} `)}${switchText(th, tr, tracked)}`;
 		r1.right(sw, W, () => this.toggleTracked());
 		f.push(r1);
@@ -166,6 +167,7 @@ export class OverviewView implements View {
 				off: ["fix_enable", () => this.s.update({ enabled: true })],
 				untracked: ["fix_track", () => this.toggleTracked()],
 				nottl: ["fix_config", () => ctx.model && this.editModel(ctx.model, true)],
+				thinking: ["fix_config", () => ctx.model && this.editModel(ctx.model, true)],
 				stopped: ["fix_resume", () => this.s.notify(tr(engine.resume() ? "n_resumed" : "n_resume_failed"), true)],
 			};
 			const action = fix[st.state];
@@ -193,6 +195,7 @@ export class OverviewView implements View {
 			r4.add("   ").add(icon(l.ok ? "check" : "cross", l.ok ? "success" : "error", "ov:last"));
 			r4.add(` ${tr("last_warm", { d: fmtDur(now - l.at), cost: fmtMoney(l.cost) })}`);
 			if (l.ask) r4.add(th.fg("warning", ` · ${tr("tag_ask")}`));
+			if (l.partial) r4.add(th.fg("warning", ` · ${tr("tag_partial")}`));
 		}
 		f.push(r4);
 

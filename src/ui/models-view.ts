@@ -150,6 +150,7 @@ export class ModelsView implements View {
 			if (e.key === cur) r.add(th.fg("warning", `  ${tr("current")}`));
 			// Right side: lifetime, subscription badge, edit button.
 			const right = new Row();
+			if (this.cfg.forceModels.includes(e.key)) right.add(th.fg("warning", `${tr("tag_force")}  `));
 			if (this.cfg.subscription.includes(e.key))
 				right.add(icon("crown", "warning", `m:sub:${i - this.top}`)).add(th.fg("warning", ` ${tr("sub_badge")}  `));
 			right.add(icon("clock", e.ttl ? "muted" : "warning", `m:ttl:${i - this.top}:${!!e.ttl}`)).add(

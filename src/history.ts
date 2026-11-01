@@ -35,6 +35,10 @@ export interface LogEntry {
 	sub?: boolean;
 	/** Happened while an ask_user_question dialog was waiting for the user. */
 	ask?: boolean;
+	/** Explicit per-model forced warming. */
+	force?: boolean;
+	/** Cancelled stream: usage/cost only cover the initial provider report. */
+	partial?: boolean;
 }
 
 const MAX_LINES = 20_000;
@@ -178,7 +182,7 @@ export function bucketize(entries: LogEntry[], range: HistoryRange, metric: Hist
 		if (!b || e.at < start) continue;
 		const v = metric === "count" ? 1 : metric === "cost" ? e.cost : e.read + e.write + e.input;
 		if (e.kind === "rebuild") b.rebuild += v;
-		else if (!e.ok) b.failed += metric === "count" ? 1 : 0;
+		else if (!e.ok) b.failed += v;
 		else b[e.source ?? "plugin"] += v;
 	}
 	return out;
@@ -217,8 +221,10 @@ export function summarize(entries: LogEntry[]): Summary {
 		else if (e.kind === "rebuild") {
 			s.rebuilds++;
 			s.rebuildCost += e.cost;
-		} else if (!e.ok) s.failed++;
-		else {
+		} else if (!e.ok) {
+			s.failed++;
+			s.warmCost += e.cost;
+		} else {
 			s.warms++;
 			s[e.source ?? "plugin"]++;
 			s.warmCost += e.cost;

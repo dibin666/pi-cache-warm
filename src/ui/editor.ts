@@ -1,6 +1,6 @@
 /**
  * Model settings: pi's own model metadata in models.json (cache lifetimes, prices) plus the
- * extension's per-model switches (keep warm, official Claude subscription).
+ * extension's per-model switches (keep warm, forced warming, official Claude subscription).
  */
 import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import { costOf, isClaude, missPremium, modelKey, priceOf } from "../engine.ts";
@@ -9,7 +9,7 @@ import type { IconName } from "../icons.ts";
 import { describeSource, effectiveFields, locateModel, type ModelFields, saveModelFields } from "../pi-config.ts";
 import { fmtMoney, fmtTok, fmtTtl, type Frame, Row, type Shared, type View, switchText } from "./frame.ts";
 
-type FieldId = "short" | "long" | "cacheRead" | "cacheWrite" | "input" | "sub" | "warm";
+type FieldId = "short" | "long" | "cacheRead" | "cacheWrite" | "input" | "sub" | "warm" | "force";
 
 interface Field {
 	id: FieldId;
@@ -34,6 +34,7 @@ export class EditorView implements View {
 	private readonly original: ModelFields;
 	private warm: boolean;
 	private sub: boolean;
+	private force: boolean;
 	private editing?: { id: FieldId; buf: string; error?: boolean };
 	private saving = false;
 	private fields: Field[];
@@ -49,6 +50,7 @@ export class EditorView implements View {
 		const key = modelKey(model);
 		this.warm = enable || s.cfg().models.includes(key);
 		this.sub = s.cfg().subscription.includes(key);
+		this.force = s.cfg().forceModels.includes(key);
 		this.fields = [
 			{ id: "short", icon: "clock", label: "f_short", hint: "f_short_hint", kind: "ttl" },
 			{ id: "long", icon: "clockBack", label: "f_long", hint: "f_long_hint", kind: "ttl" },
@@ -57,6 +59,7 @@ export class EditorView implements View {
 			{ id: "input", icon: "arrowIn", label: "f_input", hint: "f_price_hint", kind: "price" },
 			...(isClaude(model) ? [{ id: "sub", icon: "crown", label: "f_sub", hint: "f_sub_hint", kind: "toggle" } as Field] : []),
 			{ id: "warm", icon: "flame", label: "f_warm", hint: "f_warm_hint", kind: "toggle" },
+			...(model.api === "anthropic-messages" ? [{ id: "force", icon: "zap", label: "f_force", hint: "f_force_hint", kind: "toggle" } as Field] : []),
 		];
 	}
 
@@ -92,7 +95,10 @@ export class EditorView implements View {
 		if (f.kind === "ttl") this.cycleTtl(f.id as "short" | "long", dir);
 		else if (f.id === "sub") this.sub = !this.sub;
 		else if (f.id === "warm") this.warm = !this.warm;
-		else this.startEdit(f);
+		else if (f.id === "force") {
+			this.force = !this.force;
+			if (this.force) this.warm = true;
+		} else this.startEdit(f);
 	}
 
 	private startEdit(f: Field, first = "") {
@@ -126,7 +132,8 @@ export class EditorView implements View {
 			!!this.editing ||
 			(Object.keys(this.values) as (keyof ModelFields)[]).some((k) => this.values[k] !== this.original[k]) ||
 			this.warm !== cfg.models.includes(key) ||
-			this.sub !== cfg.subscription.includes(key)
+			this.sub !== cfg.subscription.includes(key) ||
+			this.force !== cfg.forceModels.includes(key)
 		);
 	}
 
@@ -150,9 +157,11 @@ export class EditorView implements View {
 			const changedPi = (Object.keys(this.values) as (keyof ModelFields)[]).some((k) => this.values[k] !== this.original[k]);
 			const models = new Set(s.cfg().models);
 			const subs = new Set(s.cfg().subscription);
+			const forced = new Set(s.cfg().forceModels);
 			this.warm ? models.add(key) : models.delete(key);
 			this.sub ? subs.add(key) : subs.delete(key);
-			s.update({ models: [...models], subscription: [...subs] });
+			this.force ? forced.add(key) : forced.delete(key);
+			s.update({ models: [...models], subscription: [...subs], forceModels: [...forced] });
 			if (changedPi) {
 				saveModelFields(model.provider, model.id, this.values);
 				await s.ctx.modelRegistry.refresh();
@@ -231,7 +240,7 @@ export class EditorView implements View {
 				this.sel = i;
 			};
 			if (fd.kind === "toggle") {
-				const on = fd.id === "sub" ? this.sub : this.warm;
+				const on = fd.id === "sub" ? this.sub : fd.id === "force" ? this.force : this.warm;
 				r.add(switchText(th, tr, on));
 				if (fd.id === "sub") r.add(th.fg("dim", `   ${tr("f_sub_note")}`));
 				f.push(r, { selected, onRow: () => (select(), this.change(fd, 1)) });
@@ -259,7 +268,8 @@ export class EditorView implements View {
 		const tokens = this.s.ctx.getContextUsage?.()?.tokens ?? 0;
 		const p = priceOf({ cost: { ...m.cost, ...this.values } }, this.sub);
 		const est = new Row().add(icon("coin", "warning", "e:est")).add(" ");
-		if (tokens) {
+		if (this.force) est.add(th.fg("warning", tr("e_force_cost")));
+		else if (tokens) {
 			est.add(
 				tr("e_estimate", {
 					tok: fmtTok(tokens),
