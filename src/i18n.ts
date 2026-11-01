@@ -31,14 +31,14 @@ const DICT = {
 	state_waiting: { zh: "等待第一次请求", en: "Waiting for a request" },
 	state_scheduled: { zh: "保温中", en: "Warm" },
 	state_busy: { zh: "正在刷新…", en: "Refreshing…" },
-	state_thinking: { zh: "固定预算 thinking 无法安全重放", en: "Budget thinking cannot be replayed" },
+	state_thinking: { zh: "固定预算思考不支持低成本预热", en: "Fixed-budget thinking blocks low-cost warming" },
 	state_off_short: { zh: "已关闭", en: "Off" },
 	state_untracked_short: { zh: "未保温", en: "Not warmed" },
 	state_unsupported_short: { zh: "仅决策", en: "Decisions only" },
 	state_nottl_short: { zh: "未配置", en: "Not configured" },
 	state_waiting_short: { zh: "等待请求", en: "Waiting" },
 	state_busy_short: { zh: "刷新中", en: "Refreshing" },
-	state_thinking_short: { zh: "不可重放", en: "No replay" },
+	state_thinking_short: { zh: "思考限制", en: "Thinking limit" },
 	state_stopped_short: { zh: "已停止", en: "Stopped" },
 	state_stopped_maxDuration: { zh: "已达最长保温时长", en: "Max keep-warm reached" },
 	state_stopped_expired: { zh: "缓存已过期", en: "Cache expired" },
@@ -197,6 +197,10 @@ const DICT = {
 
 	// notifications
 	n_no_snapshot: { zh: "还没有可重放的请求,先发一条消息", en: "No request to replay yet — send a message first" },
+	n_budget_thinking: {
+		zh: "无法预热:固定预算思考要求 max_tokens 大于 budget_tokens;降低预算会改变缓存,保留预算可能生成大量 token。可在 /thinking 关闭思考后发送新消息,或使用服务端已确认支持的 adaptive thinking。",
+		en: "Cannot warm: fixed-budget thinking requires max_tokens > budget_tokens. Reducing the budget changes the cache; keeping it may generate many tokens. Turn thinking off with /thinking and send a new message, or use adaptive thinking only if the endpoint supports it.",
+	},
 	n_warmed: { zh: "已预热:命中 {read} tokens,写入 {write},费用 ≈ ${cost}", en: "Warmed: {read} read from cache, {write} written, ≈ ${cost}" },
 	n_warm_failed: { zh: "预热失败:{err}", en: "Warm failed: {err}" },
 	n_broken: { zh: "缓存预热:重放未命中缓存(命中 {read},写入 {write}),已停用接管。", en: "Cache Warm: replay missed the cache (read {read}, wrote {write}); takeover disabled." },

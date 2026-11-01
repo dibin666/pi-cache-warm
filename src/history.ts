@@ -29,6 +29,8 @@ export interface LogEntry {
 	gapMs?: number;
 	error?: string;
 	reason?: string;
+	/** Cold-start rebuild before an observable cached prefix; false marks a genuine rebuild. */
+	initial?: boolean;
 	/** Official Claude subscription: cache reads were not billed. */
 	sub?: boolean;
 	/** Happened while an ask_user_question dialog was waiting for the user. */
@@ -135,17 +137,19 @@ export function filterEntries(entries: LogEntry[], range: HistoryRange, filter: 
 }
 
 /**
- * The first recorded event in a conversation is the bootstrap entry, not a useful warm record.
- * Keep it in the log so it can still be audited, but leave it out of the views that display warm
- * history. Entries are sorted by time by readLog().
+ * Hide initialization rebuilds, not the first actual warm or stop. New records explicitly
+ * distinguish cold-start misses from genuine rebuilds, even when several requests are needed
+ * to establish a cache. For legacy logs, only hide a conversation's first event if it is a
+ * rebuild. Keep the raw log intact, and apply this before date/scope filters.
  */
-export function withoutConversationFirst(entries: LogEntry[]): LogEntry[] {
+export function withoutInitialRebuilds(entries: LogEntry[]): LogEntry[] {
 	const seen = new Set<string>();
 	return entries.filter((e) => {
-		if (!e.session) return true;
-		if (seen.has(e.session)) return true;
-		seen.add(e.session);
-		return false;
+		const first = !!e.session && !seen.has(e.session);
+		if (e.session) seen.add(e.session);
+		if (e.kind !== "rebuild") return true;
+		if (typeof e.initial === "boolean") return !e.initial;
+		return !first;
 	});
 }
 

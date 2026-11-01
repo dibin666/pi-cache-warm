@@ -5,7 +5,7 @@ import { modelKey } from "../engine.ts";
 import type { Key } from "../i18n.ts";
 import type { IconName } from "../icons.ts";
 import { CACHE_WARMING_MODES } from "../pi-config.ts";
-import { filterEntries, readLog, withoutConversationFirst } from "../history.ts";
+import { filterEntries, readLog, withoutInitialRebuilds } from "../history.ts";
 import { kindIcon, kindLabel } from "./history-view.ts";
 import { fmtClock, fmtDur, fmtMoney, fmtTok, fmtTtl, type Frame, pad, padLeft, Row, type Shared, shortModel, type View, switchText } from "./frame.ts";
 
@@ -232,7 +232,7 @@ export class OverviewView implements View {
 			session = undefined;
 		}
 		const recentLog = filterEntries(
-			withoutConversationFirst(readLog()),
+			withoutInitialRebuilds(readLog()),
 			draft.historyRange,
 			draft.historyFilter,
 			{ session, model: ctx.model ? modelKey(ctx.model) : undefined },

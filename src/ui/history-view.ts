@@ -2,7 +2,7 @@ import { matchesKey } from "@earendil-works/pi-tui";
 import { chartBuckets, SERIES, SERIES_TOKEN, textChart } from "../chart.ts";
 import { RANGE_CHOICES, type HistoryFilter, type HistoryRange } from "../config.ts";
 import { costOf, modelKey, priceOf } from "../engine.ts";
-import { bucketize, clearLog, filterEntries, type LogEntry, RANGE_MS, readLog, summarize, withoutConversationFirst } from "../history.ts";
+import { bucketize, clearLog, filterEntries, type LogEntry, RANGE_MS, readLog, summarize, withoutInitialRebuilds } from "../history.ts";
 import type { Key } from "../i18n.ts";
 import type { IconName } from "../icons.ts";
 import { fmtClock, fmtDur, fmtMoney, fmtTok, type Frame, pad, padLeft, Row, type Shared, shortModel, type View } from "./frame.ts";
@@ -127,8 +127,8 @@ export class HistoryView implements View {
 			session = undefined;
 		}
 		const model = ctx.model ? modelKey(ctx.model) : undefined;
-		// Remove each conversation's bootstrap event before applying the date/scope filters.
-		const entries = filterEntries(withoutConversationFirst(readLog()), this.range, this.filter, { session, model }, now);
+		// Hide initialization rebuilds before filtering so charts, totals and details agree.
+		const entries = filterEntries(withoutInitialRebuilds(readLog()), this.range, this.filter, { session, model }, now);
 		this.list = [...entries].reverse();
 		if (this.pendingAt !== undefined) {
 			const i = this.list.findIndex((e) => e.at === this.pendingAt);

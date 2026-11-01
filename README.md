@@ -13,12 +13,18 @@ Keeps [pi](https://pi.dev)'s prompt cache warm beyond its built-in limits, with 
 
 - **Keep warm** – overrides pi's built-in warming decisions and takes over when it stops (Anthropic Messages, OpenAI Responses / Chat Completions).
 - **Ask-aware** – keeps warming while an rpiv `ask_user_question` dialog waits for you; tagged `ask` in history.
-- **History** – every warm, rebuild and stop with its cost, as a chart and a list; click a record for details.
+- **History** – warms, rebuilds and stops with their costs, as a chart and a list; click a record for details. Initialization rebuilds stay in the raw log but are excluded from the views and statistics.
 - **Model settings** – edit pi's `promptCache` and prices in `models.json`; per-model Claude subscription switch (cache reads not billed).
 - **TUI** – English / 中文, plain-text Unicode icons that work in any terminal, mouse and keyboard.
 
 <img src="docs/history.en.svg" alt="History" width="100%">
 <img src="docs/models.en.svg" alt="Model settings" width="100%">
+
+## Warming limits
+
+Fixed-budget thinking on the Anthropic Messages API cannot be safely replayed with a tiny output cap: `max_tokens` must exceed `budget_tokens`, changing the budget changes the message cache, and keeping it may generate many tokens. Pi's built-in warmer has the same restriction.
+
+To warm such a model, turn thinking off with `/thinking` and send a new message. Alternatively, set `compat.forceAdaptiveThinking: true` for the model in `models.json` **only if the endpoint is confirmed to support adaptive thinking**; reload and send a new message. The extension never changes thinking settings automatically.
 
 ## Install & use
 

@@ -17,6 +17,7 @@ const MIN_EXPECTED_SAVINGS = 0.05;
 const MARGIN_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 120_000;
 const WARM_OUTPUT_LIMIT = 16;
+const CACHE_HIT_RATIO = 0.3;
 
 export const TAKEOVER_APIS = new Set(["anthropic-messages", "openai-responses", "openai-completions"]);
 
@@ -68,6 +69,12 @@ function mergeUsage(a: Usage | undefined, b: Usage | undefined): Usage | undefin
 		write: Math.max(a.write, b.write),
 		output: Math.max(a.output, b.output),
 	};
+}
+
+/** Tiny incidental hits do not prove that the conversation's prefix was cached. */
+function hasCachedPrefix(u: Usage): boolean {
+	const total = u.input + u.read + u.write;
+	return total > 0 && u.read + u.write >= total * CACHE_HIT_RATIO;
 }
 
 function streamUsage(api: string, data: any): { usage?: Usage; final: boolean } {
@@ -129,6 +136,8 @@ interface Req {
 	done: boolean;
 	prevTouch?: number;
 	prevStop?: string;
+	/** No usable cached prefix had been observed before this request. */
+	initial?: boolean;
 	ask?: boolean;
 }
 
@@ -141,6 +150,8 @@ interface Snapshot {
 	lastTouch: number;
 	/** When the last real (non-warm) request started. */
 	lastReal: number;
+	/** A real request or warm has reported a usable cache read/write. */
+	cacheEstablished: boolean;
 	pluginWarms: number;
 	builtinWarms: number;
 	broken: boolean;
@@ -436,6 +447,7 @@ export class Engine {
 		const same = prev?.key === key;
 		req.prevTouch = same ? prev!.lastTouch : undefined;
 		req.prevStop = same ? (this.stopKey ?? undefined) : undefined;
+		req.initial = !same || !prev!.cacheEstablished;
 		this.snap = {
 			model: req.model,
 			key,
@@ -443,6 +455,7 @@ export class Engine {
 			headers: req.headers,
 			lastTouch: req.at,
 			lastReal: req.at,
+			cacheEstablished: same ? prev!.cacheEstablished : false,
 			pluginWarms: 0,
 			builtinWarms: 0,
 			broken: same ? prev!.broken : false,
@@ -469,11 +482,14 @@ export class Engine {
 			this.logBuiltin(req, true);
 			return;
 		}
-		// A real request that missed a cache we expected to be warm: record the rebuild.
 		const u = req.usage;
-		if (!u || req.prevTouch === undefined) return;
+		if (!u) return;
+		const s = this.snap;
+		if (s && s.key === modelKey(req.model) && s.lastReal === req.at && hasCachedPrefix(u)) s.cacheEstablished = true;
+		if (req.prevTouch === undefined) return;
+		// Keep cold-start misses for auditing, but mark them so the views can hide them.
 		const total = u.input + u.read + u.write;
-		if (total < 4096 || u.read >= total * 0.3) return;
+		if (total < 4096 || u.read >= total * CACHE_HIT_RATIO) return;
 		const gap = req.at - req.prevTouch;
 		const ttl = this.ttlMs(req.model) ?? 0;
 		const reason =
@@ -491,12 +507,15 @@ export class Engine {
 			sub: this.isSubscription(req.model) || undefined,
 			gapMs: gap,
 			reason,
+			initial: req.initial,
 		});
 		this.emit();
 	}
 
 	private logBuiltin(req: Req, ok: boolean, error?: string) {
 		const u = req.usage ?? { input: 0, read: 0, write: 0, output: 0 };
+		const s = this.snap;
+		if (ok && s && s.key === modelKey(req.model) && hasCachedPrefix(u)) s.cacheEstablished = true;
 		const rec: WarmRecord = {
 			at: req.at,
 			ok,
@@ -654,6 +673,7 @@ export class Engine {
 		const s = this.snap;
 		const ctx = this.ctx;
 		if (!s || !ctx || !s.payload) return { ok: false, message: t(lang, "n_no_snapshot") };
+		if (this.budgetThinking) return { ok: false, message: t(lang, "n_budget_thinking") };
 		if (!this.canTakeover(s)) return { ok: false, message: t(lang, "state_unsupported") };
 		if (this.busy) return { ok: false, message: t(lang, "state_busy") };
 		const source: WarmSource = manual ? "manual" : "plugin";
@@ -674,6 +694,7 @@ export class Engine {
 			if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
 			const u = usageFrom(s.model.api, JSON.parse(text).usage) ?? { input: 0, read: 0, write: 0, output: 0 };
 			const cost = costOf(this.price(s.model), u);
+			if (hasCachedPrefix(u)) s.cacheEstablished = true;
 			s.lastTouch = Date.now();
 			s.pluginWarms += 1;
 			s.failures = 0;
@@ -783,7 +804,8 @@ export class Engine {
 		if (!ttl) return { ...out, state: "nottl" };
 		if (!out.takeover) return { ...out, state: "unsupported" };
 		if (this.busy) return { ...out, state: "busy" };
-		if (this.budgetThinking) return { ...out, state: "thinking" };
+		// A one-token cost estimate is misleading when that request cannot be sent.
+		if (this.budgetThinking) return { ...out, state: "thinking", estWarmCost: undefined };
 		if (!s || s.key !== key) return { ...out, state: "waiting" };
 		out.lastTouch = s.lastTouch;
 		out.lastReal = s.lastReal;

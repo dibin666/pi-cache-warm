@@ -1,5 +1,5 @@
-// Offline checks: i18n coverage, character icons, and TUI rendering of every view in both
-// languages. Uses the jiti bundled with pi.
+// Offline checks: engine safety, history filtering, i18n coverage, character icons, and TUI
+// rendering of every view in both languages. Uses the jiti bundled with pi.
 //   node test/run.mjs [--print]
 import { execSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -96,8 +96,48 @@ const iconsMod = await jiti.import(join(src, "icons.ts"));
 // ── TUI rendering ──
 const { Engine } = await jiti.import(join(src, "engine.ts"));
 const { loadConfig } = await jiti.import(join(src, "config.ts"));
-const { appendLog, readLog } = await jiti.import(join(src, "history.ts"));
+const { appendLog, readLog, filterEntries, withoutInitialRebuilds, summarize, bucketize } = await jiti.import(join(src, "history.ts"));
 const panelMod = await jiti.import(join(src, "ui/panel.ts"));
+
+// ── initialization rebuilds: filter only cold starts, never actual warms/stops ──
+{
+	const at = Date.now();
+	let sequence = 0;
+	const entry = (model, session, kind, extra = {}) => ({
+		v: 2, ts: new Date(at - 30_000 + sequence * 100).toISOString(), at: at - 30_000 + sequence++ * 100,
+		model, session, kind, ok: true, input: 5000, read: 0, write: 0, output: 1, cost: 0.5, ...extra,
+	});
+	const entries = [
+		entry("legacy-initial", "legacy", "rebuild"),
+		entry("legacy-repeat", "legacy", "rebuild"),
+		entry("first-warm", "warm", "warm", { source: "builtin" }),
+		entry("rebuild-after-warm", "warm", "rebuild"),
+		entry("first-manual", "manual", "warm", { source: "manual" }),
+		entry("first-failure", "failure", "warm", { ok: false }),
+		entry("first-stop", "stop", "stop"),
+		entry("rebuild-after-stop", "stop", "rebuild"),
+		entry("initial-1", "tagged", "rebuild", { initial: true }),
+		entry("initial-2", "tagged", "rebuild", { initial: true }),
+		entry("genuine-rebuild", "tagged", "rebuild", { initial: false }),
+		entry("first-genuine", "genuine", "rebuild", { initial: false }),
+		entry("anonymous-initial", undefined, "rebuild", { initial: true }),
+		entry("anonymous-rebuild", undefined, "rebuild"),
+	];
+	const visible = withoutInitialRebuilds(entries);
+	const expected = ["legacy-repeat", "first-warm", "rebuild-after-warm", "first-manual", "first-failure", "first-stop", "rebuild-after-stop", "genuine-rebuild", "first-genuine", "anonymous-rebuild"];
+	if (JSON.stringify(visible.map((e) => e.model)) !== JSON.stringify(expected)) fail(`history: incorrect initial filtering ${JSON.stringify(visible.map((e) => e.model))}`);
+	if (entries.length !== 14) fail("history: filtering mutated the raw log");
+	const sum = summarize(visible);
+	if (sum.warms !== 2 || sum.failed !== 1 || sum.stops !== 1 || sum.rebuilds !== 6) fail(`history: incorrect visible totals ${JSON.stringify(sum)}`);
+	if (bucketize(visible, "24h", "count", at).reduce((n, b) => n + b.rebuild, 0) !== 6) fail("history: chart includes initialization rebuilds");
+	const ranged = [
+		{ ...entry("old-initial", "range", "rebuild"), at: at - 25 * 3600_000 },
+		entry("in-range-rebuild", "range", "rebuild"),
+	];
+	const filtered = filterEntries(withoutInitialRebuilds(ranged), "24h", "session", { session: "range" }, at);
+	if (filtered.length !== 1 || filtered[0].model !== "in-range-rebuild") fail("history: date filtering hid another legacy rebuild");
+	console.log("history: initialization filtering checked");
+}
 
 const now = Date.now();
 for (let i = 0; i < 40; i++) {
@@ -432,6 +472,162 @@ console.log(`tui: ${cases.length} renders checked`);
 	}
 	alt.stop();
 	console.log("footer: click checked");
+}
+
+// ── overview and history share initialization filtering, including totals/details ──
+{
+	const sessionManager = ctx.sessionManager;
+	ctx.sessionManager = { getSessionId: () => "initial-ui" };
+	const at = Date.now();
+	for (const [i, model, kind, initial] of [[0, "cold-start", "rebuild", true], [1, "cold-start", "rebuild", true], [2, "real-miss", "rebuild", false], [3, "warm-ok", "warm", undefined]]) {
+		appendLog({ at: at - 5000 + i * 100, session: "initial-ui", model: `offline/${model}`, kind, source: kind === "warm" ? "builtin" : undefined, initial, ok: true, input: 5000, read: kind === "warm" ? 5000 : 0, write: 0, output: 1, cost: initial ? 999 : 0.01 });
+	}
+	try {
+		for (const lang of ["zh", "en"]) {
+			for (const tab of [0, 1]) {
+				const o = { name: `initial-ui-${lang}-${tab}`, lang, tab, cols: 70, rows: 36 };
+				await open(o);
+				comp.shared.pref({ historyRange: "24h", historyFilter: "session" });
+				const lines = draw(o);
+				const plain = lines.map(strip).join("\n");
+				if (plain.includes("cold-start") || plain.includes("999")) fail(`${o.name}: initialization rebuild leaked into the view`);
+				if (!plain.includes("real-miss") || !plain.includes("warm-ok")) fail(`${o.name}: genuine rebuild or first warm was hidden`);
+				if (tab === 1) {
+					click(lines, "real-miss", "genuine rebuild details");
+					const detail = draw(o).map(strip).join("\n");
+					if (!detail.includes("real-miss") || !detail.includes("2 / 2")) fail(`${o.name}: hidden rebuild affected detail navigation`);
+				}
+				comp.dispose();
+			}
+		}
+		if (readLog().filter((e) => e.session === "initial-ui").length !== 4) fail("history: initialization records were deleted from the audit log");
+	} finally {
+		ctx.sessionManager = sessionManager;
+	}
+	console.log("history: initialization views checked");
+}
+
+// ── engine: observe cache establishment and retain fixed-budget replay protection ──
+{
+	const originalNow = Date.now;
+	const originalFetch = globalThis.fetch;
+	let clock = originalNow();
+	Date.now = () => clock;
+	const harnesses = [];
+	const requests = [];
+	globalThis.fetch = async (url, options) => {
+		requests.push({ url, body: JSON.parse(options.body) });
+		return { ok: true, text: async () => JSON.stringify({ usage: { input_tokens: 100, cache_read_input_tokens: 7000, cache_creation_input_tokens: 0, output_tokens: 1 } }) };
+	};
+	const make = (api, name) => {
+		const h = {};
+		const model = { ...opus, provider: "offline", id: name, api, baseUrl: "http://offline.invalid" };
+		const session = `engine-${name}`;
+		let authCalls = 0;
+		const context = {
+			...ctx, model, sessionManager: { getSessionId: () => session },
+			modelRegistry: { ...ctx.modelRegistry, getApiKeyAndHeaders: async () => { authCalls++; return { ok: true, apiKey: "offline-key" }; } },
+		};
+		const e = new Engine({ on: (event, fn) => (h[event] = fn), events: { on() {} } }, { ...loadConfig(), models: [`offline/${name}`], subscription: [], lang: "zh" });
+		e.register();
+		h.session_start({}, context);
+		const send = (payload, usage, status = 200) => {
+			clock += 100;
+			h.before_provider_request({ payload }, context);
+			h.after_provider_response({ status }, context);
+			if (status >= 400) return;
+			if (api === "anthropic-messages") {
+				h.provider_stream_event({ data: { type: "message_start", message: { usage } } }, context);
+				h.provider_stream_event({ data: { type: "message_stop" } }, context);
+			} else {
+				h.provider_stream_event({ data: { type: "response.completed", response: { usage } } }, context);
+			}
+		};
+		const rows = () => readLog().filter((row) => row.session === session);
+		const harness = { e, h, model, context, send, rows, authCalls: () => authCalls };
+		harnesses.push(harness);
+		return harness;
+	};
+	const payload = { model: "offline", max_tokens: 16384, messages: [] };
+	const cold = { input_tokens: 7000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 1 };
+	const hit = { ...cold, input_tokens: 100, cache_read_input_tokens: 7000 };
+	const write = { ...cold, input_tokens: 100, cache_creation_input_tokens: 7000 };
+	try {
+		const startup = make("anthropic-messages", "startup");
+		startup.send(payload, cold);
+		if (startup.rows().length) fail("engine: first request was logged as a rebuild");
+		startup.send(payload, cold);
+		startup.send(payload, { ...cold, cache_read_input_tokens: 64 });
+		startup.send(payload, cold);
+		if (startup.rows().length !== 3 || startup.rows().some((e) => e.initial !== true)) fail("engine: cold-start misses were not marked as initialization");
+		if (withoutInitialRebuilds(startup.rows()).length) fail("engine: repeated initialization rebuilds remained visible");
+		startup.send(payload, hit);
+		startup.send(payload, write);
+		const visible = withoutInitialRebuilds(startup.rows());
+		if (visible.length !== 1 || visible[0].initial !== false) fail("engine: genuine rebuild after a cache hit was hidden");
+
+		const created = make("anthropic-messages", "created");
+		created.send(payload, write);
+		created.send(payload, write);
+		if (created.rows().length !== 1 || withoutInitialRebuilds(created.rows()).length !== 1 || created.rows()[0].initial !== false) fail("engine: first cache write did not establish the baseline");
+
+		const responses = make("openai-responses", "responses");
+		const responsePayload = { model: "offline", max_output_tokens: 16384, input: [] };
+		responses.send(responsePayload, { input_tokens: 7100, input_tokens_details: { cached_tokens: 7000 }, output_tokens: 1 });
+		responses.send(responsePayload, { input_tokens: 8000, input_tokens_details: { cached_tokens: 0 }, output_tokens: 1 });
+		if (responses.rows().length !== 1 || responses.rows()[0].initial !== false) fail("engine: Responses cache hit did not establish the baseline");
+
+		const builtin = make("anthropic-messages", "builtin");
+		builtin.send(payload, cold);
+		builtin.send({ ...payload, max_tokens: 1 }, hit);
+		builtin.send(payload, write);
+		if (withoutInitialRebuilds(builtin.rows()).length !== 2 || builtin.rows().at(-1)?.initial !== false) fail("engine: built-in warm or subsequent genuine rebuild was hidden");
+		const failed = make("anthropic-messages", "failed-builtin");
+		failed.send(payload, cold);
+		failed.send({ ...payload, max_tokens: 1 }, undefined, 500);
+		failed.send(payload, cold);
+		if (failed.rows().at(-1)?.initial !== true || withoutInitialRebuilds(failed.rows()).length !== 1) fail("engine: failed warming incorrectly established a cache");
+
+		startup.h.session_start({}, startup.context);
+		startup.send(payload, cold);
+		startup.send(payload, cold);
+		if (startup.rows().at(-1)?.initial !== true) fail("engine: new session kept the previous cache baseline");
+
+		const budget = make("anthropic-messages", "thinking");
+		const thinkingPayload = { ...payload, thinking: { type: "enabled", budget_tokens: 8192 } };
+		budget.send(thinkingPayload, hit);
+		const state = budget.e.status(budget.model);
+		if (state.state !== "thinking" || state.nextAt) fail("engine: fixed-budget replay was scheduled");
+		if (state.estWarmCost !== undefined) fail("engine: blocked thinking showed a misleading one-token cost estimate");
+		for (const lang of ["zh", "en"]) {
+			budget.e.cfg.lang = lang;
+			const result = await budget.e.warm(true);
+			if (result.ok || !result.message.includes("budget_tokens") || !result.message.includes("/thinking")) fail(`engine: ${lang} manual warming did not explain the thinking restriction`);
+		}
+		if (budget.authCalls() || requests.length) fail("engine: fixed-budget warming attempted a provider call");
+
+		// Both supported modes still replay at a tiny output cap, without changing the original request.
+		for (const thinking of [undefined, { type: "adaptive" }]) {
+			const replayPayload = { ...payload, system: [{ type: "text", text: "offline", cache_control: { type: "ephemeral" } }], ...(thinking ? { thinking, output_config: { effort: "high" } } : {}) };
+			const before = JSON.stringify(replayPayload);
+			budget.send(replayPayload, hit);
+			if (budget.e.status(budget.model).state !== "scheduled") fail("engine: supported thinking mode was not scheduled");
+			const result = await budget.e.warm(true);
+			const body = requests.at(-1)?.body;
+			if (!result.ok || body?.max_tokens !== 1 || JSON.stringify(body?.thinking) !== JSON.stringify(thinking) || JSON.stringify(replayPayload) !== before) fail("engine: compatible replay changed thinking or the captured payload");
+			if (JSON.stringify(body?.system) !== JSON.stringify(replayPayload.system) || JSON.stringify(body?.output_config) !== JSON.stringify(replayPayload.output_config)) fail("engine: compatible replay changed cache markers or effort");
+		}
+		const manual = make("anthropic-messages", "manual-baseline");
+		manual.send(payload, cold);
+		await manual.e.warm(true);
+		manual.send(payload, write);
+		if (manual.rows().at(-1)?.initial !== false || withoutInitialRebuilds(manual.rows()).length !== 2) fail("engine: manual warm did not establish the cache baseline");
+		console.log("engine: initialization and thinking safety checked");
+	} finally {
+		for (const harness of harnesses) harness.h.session_shutdown({}, harness.context);
+		Date.now = originalNow;
+		globalThis.fetch = originalFetch;
+	}
 }
 
 console.log(failures ? `${failures} failure(s)` : "all checks passed");
